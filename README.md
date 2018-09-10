@@ -4,10 +4,14 @@
 
 This repository just contains the Python 3 script for [BruteforceMovable](https://bruteforcemovable.com) and some other micellaneous things.
 
+# License
 
-License: MIT
+
+
+This project is licensed under the MIT License.
 
 You can find a copy of the license in the "LICENSE.txt" file.
+
 
 # Credits
 
