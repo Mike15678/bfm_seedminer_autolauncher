@@ -1,6 +1,6 @@
 # bfm_seedminer_autolauncher
 
-[![Build Status](https://travis-ci.com/Mike15678/bfm_seedminer_autolauncher.svg?branch=master)](https://travis-ci.com/Mike15678/bfm_seedminer_autolauncher)
+[![Build Status](https://travis-ci.com/Mike15678/bfm_seedminer_autolauncher.svg?branch=dev)](https://travis-ci.com/Mike15678/bfm_seedminer_autolauncher)
 
 This repository just contains the Python 3 script for [BruteforceMovable](https://bruteforcemovable.com) and some other micellaneous things.
 
