@@ -43,7 +43,7 @@ try:
     import requests
 except ImportError:
     requests = None
-import shutil
+# import shutil
 import signal
 try:
     import subprocess
@@ -57,14 +57,22 @@ try:
 except ImportError:
     urllib = None
 
-# Constants
-BFM_LOG = "bfm_autolauncher.log"
+# Constants (don't mess with this unless you know what you're doing)
+BFM_LOG = "bfm_seedminer_autolauncher.log"  # Newly named log file
 BENCHM = "benchmark"
 MN = "miner_name"  # Newly named "miner name" file
 TM = "total_mined"
 BASE_URL = "https://bruteforcemovable.com"
 UPDATE_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/blob/master"
-CURRENT_VERSION = "2.6.1"  # 2.6.1 -> 3.0.0
+CURRENT_VERSION = "2.6.1"  # TODO: 2.6.1 -> 3.0.0
+if os.name == 'nt':
+    BFM_DIR = "bruteforce_movable_misc\\"  # Escape the escape character
+else:
+    BFM_DIR = "bruteforce_movable_misc/"
+
+# Not constants; just setting these here
+currentid = ""
+active_job = False
 
 
 def signal_handler(sig, frame):
@@ -73,13 +81,13 @@ def signal_handler(sig, frame):
     Note that if bfCL was running, we've already killed it by pressing Ctrl + C.
     """
     global active_job, currentid
-    signal.signal(signal.SIGINT, original_sigint)
+    signal.signal(signal.SIGINT, original_sigint)  # This restores the original sigint handler
     if currentid != "" and active_job is True:
         active_job = False
         print("Requeuing job...")
         s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
         print("Note that if you would like to kill a job instead,"
-              " please let the script run until it is auto-killed!")
+              " please let the script run until a job is auto-killed!")
         while True:
             try:
                 quit_input = input("Would you like to mine another job? [y/n]: ")
@@ -105,12 +113,18 @@ def signal_handler(sig, frame):
 def python_check():
     """A simple check to see if the Python version being used is supported."""
     if sys.version_info < (3, 0):
-        print("Python %s.%s.%s is not supported! Please use Python 3.2.0 or later!" % sys.version_info[0:3])
-        raw_input("Press the Enter key to exit...")
+        print("Python %s.%s.%s is not supported! Please use Python 3.0.0 or later!" % sys.version_info[0:3])
+        try:
+            raw_input("Press the Enter key to exit")
+        except NameError:  # More or less a workaround for pyflakes
+            # If this somehow happens on a real Python installation, uhh....
+            raw_input = None
+            assert raw_input is None
         sys.exit(1)
+    # TODO: Maybe delete this
     elif sys.version_info < (3, 2):
-        print("Python {}.{}.{} is not supported! Please use Python 3.2.0 or later!".format(*sys.version_info))
-        input("Press the Enter key to exit...")
+        print("Python {}.{}.{} is not supported! Please use Python 3.4.0 or later!".format(*sys.version_info))
+        input("Press the Enter key to exit")
         sys.exit(1)
 
 
@@ -122,34 +136,68 @@ def os_and_arch_check():
         print("You are using an unsupported computer architecture: {}!\n"
               "This script only works on 64-bit computers".format(platform.machine()[-2:]))
         print("If you believe to have received this message in mistake, feel free to make a GitHub issue")
-        input("Press the Enter to key to exit...")
+        input("Press the Enter to key to exit")
         sys.exit(1)
     supported_os = sys.platform in {'win32', 'cygwin', 'msys', 'linux', 'linux2', 'darwin'}
     if not supported_os:
         print("You are an unsupported Operating System: {}!\n"
               "This script only works on Windows, macOS, and Linux".format(sys.platform()))
-        input("Press the Enter to key to exit...")
+        input("Press the Enter to key to exit")
         sys.exit(1)
 
 
 def requests_module_check():
-    """A simple check that determines if the "requests" module is installed on your computer."""
-    pass
+    """A check that determines if the "requests" module is installed on your computer
+    and provides instructions on how to install it.
+    """
+    if requests is None:
+        print('The "requests" module is not installed on this computer!\n'
+              'Please install it via pip and then feel free to rerun this script')
+        if sys.platform in {'win32', 'darwin'}:
+            if sys.version_info < (3, 4):
+                print("That being said, it would seem that your computer is running a Python version\n"
+                      "that is less than 3.4\n"
+                      "This usually means that pip is NOT installed so please consider updating\n"
+                      "to the latest Python 3 version")
+            if sys.platform == 'win32':
+                print("Once that's done, you can open an administrator\n"
+                      "command prompt/Powershell window and then enter\n"
+                      'in "py -3 -m pip install requests" (without the quotes)')
+            elif sys.platform == 'darwin':
+                print("Once that's done, you can enter\n"
+                      'in "py -3 -m pip install --user requests" (without the quotes)')
+            input("Press the Enter key to exit")
+        else:
+            if sys.platform in {'cygwin', 'msys'}:
+                print("For Cygwin-like environments, this can generally be done by\n"
+                      'entering in "python3 -m pip install --user requests" (without the quotes)')
+            elif sys.platform in {'darwin', 'linux'}:
+                print("For Linux/macOS, this can generally be done by\n"
+                      'entering in "python3 -m pip install --user requests" (without the quotes)')
 
 
-if __name__ == "__main__":
-    python_check()
-    os_and_arch_check()
-    original_sigint = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, signal_handler)
-
-    if os.name == 'nt':
-        bfm_dir = "bruteforce_movable_misc\\"  # Escape the escape character
+def bfcl_process_killer():
+    if sys.platform in {'win32', 'cygwin', 'msys'}:
+        subprocess.call(["taskkill", "/IM", "bfcl.exe", "/F"])
     else:
-        bfm_dir = "bruteforce_movable_misc/"
+        subprocess.call(["killall", "-9", "bfcl"])
 
-    if not os.path.isdir(bfm_dir):
-        os.makedirs(bfm_dir)
+
+# https://stackoverflow.com/a/16696317 thx
+def download_file(url, local_filename):
+    # NOTE the stream=True parameter
+    r1 = requests.get(url, stream=True)
+    with open(local_filename, 'wb') as f1:
+        for chunk in r1.iter_content(chunk_size=1024):
+            if chunk:  # filter out keep-alive new chunks
+                f1.write(chunk)
+                # f1.flush() commented by recommendation from J.F.Sebastian
+    return local_filename
+
+
+def file_mover():
+    if not os.path.isdir(BFM_DIR):
+        os.makedirs(BFM_DIR)
 
     try:
         if os.path.isfile(BFM_LOG):
@@ -157,37 +205,26 @@ if __name__ == "__main__":
     except OSError:
         pass  # We'll try again next time
     if os.path.isfile(BENCHM):
-        os.rename(BENCHM, bfm_dir + BENCHM)
+        os.rename(BENCHM, BFM_DIR + BENCHM)
     if os.path.isfile("minername"):  # Old "miner name" file
-        os.rename("minername", bfm_dir + MN)
+        os.rename("minername", BFM_DIR + MN)
     if os.path.isfile(TM):
-        os.rename(TM, bfm_dir + TM)
+        os.rename(TM, BFM_DIR + TM)
 
-    logging.basicConfig(level=logging.DEBUG, filename=bfm_dir + 'bfm_autolauncher.log', filemode='w')
+
+if __name__ == "__main__":
+    # This can be done on both Python 2 & 3 so let's do this before the Python version check
+    original_sigint = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    python_check()
+    os_and_arch_check()
+
+    file_mover()
+
+    logging.basicConfig(level=logging.DEBUG, filename=BFM_DIR + 'bfm_autolauncher.log', filemode='w')
 
     s = requests.Session()
-    currentid = ""
-    active_job = False
-
-
-    def bfcl_process_killer():
-        if os.name == 'nt':
-            subprocess.call(["taskkill", "/IM", "bfcl.exe", "/F"])
-        else:
-            subprocess.call(["killall", "-9", "bfcl"])
-
-
-    # https://stackoverflow.com/a/16696317 thx
-    def download_file(url, local_filename):
-        # NOTE the stream=True parameter
-        r1 = requests.get(url, stream=True)
-        with open(local_filename, 'wb') as f1:
-            for chunk in r1.iter_content(chunk_size=1024):
-                if chunk:  # filter out keep-alive new chunks
-                    f1.write(chunk)
-                    # f1.flush() commented by recommendation from J.F.Sebastian
-        return local_filename
-
 
     print("Checking for updates...")
     r0 = s.get(UPDATE_URL + "/static/autolauncher_version")
@@ -207,11 +244,12 @@ if __name__ == "__main__":
             elif 'Seedminer v2.1.5' in line:
                 break
             else:
-                print("You must use this release of Seedminer:"
-                      " https://github.com/Mike15678/seedminer/releases/tag/v2.1.5"
-                      " if you want to use this script!")
-                print("Please download and extract it, and copy this script inside of the new 'seedminer' folder")
-                print("After that's done, feel free to rerun this script")
+                print("You must use this release of Seedminer:\n"
+                      "https://github.com/Mike15678/seedminer/releases/tag/v2.1.5\n"
+                      "if you want to use this script!")
+                print("Please download and extract it,\n"
+                      "and copy this script inside of the new 'seedminer' folder\n"
+                      "After that's done, feel free to rerun this script")
                 input("Press the Enter key to exit")
                 sys.exit(0)
 
@@ -228,17 +266,22 @@ if __name__ == "__main__":
     print("Updating seedminer db...")
     subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
 
-    miner_name = ""
     if os.path.isfile("minername"):
         with open("minername", "rb") as file:
             miner_name = pickle.load(file)
     else:
-        miner_name = input("No username set, which name would you like to have on the leaderboards?\n"
-                           "(Allowed Characters a-Z 0-9 - _ | ): ")
+        while True:
+            miner_name = input("No username set, which name would you like to have on the leaderboards?\n"
+                               "Allowed Characters are: a-Z 0-9 - _ |\n"
+                               "Enter your desired name: ")
+            if not re.match("^[a-zA-Z0-9_\-|]*$", miner_name):
+                print("Invalid character inputted!")
+                continue
+            else:
+                break
         with open("minername", "wb") as file:
             pickle.dump(miner_name, file, protocol=3)
 
-    miner_name = re.sub('[^a-zA-Z0-9_\-|]+', '', miner_name)
     print("Welcome " + miner_name + ", your mining effort is truly appreciated!")
 
     if os.path.isfile("benchmark"):
@@ -261,7 +304,7 @@ if __name__ == "__main__":
         print("\nBenchmarking...")
         timeTarget = time.time() + 215
         download_file(BASE_URL + "/static/impossible_part1.sed",
-                                "movable_part1.sed")
+                      "movable_part1.sed")
         process = subprocess.call(
             [sys.executable, "seedminer_launcher3.py", "gpu", "0", "5"])
         if process == 101:
@@ -379,7 +422,7 @@ if __name__ == "__main__":
                         print("Please try figuring this out before running this script again")
                         input("Press the Enter key to exit")
                         sys.exit(1)
-        except Exception as e:
+        except Exception:
             active_job = False
             if currentid != "":
                 s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
