@@ -11,12 +11,12 @@ You can find a copy of the license in the "LICENSE.txt" file.
 
 # Credits
 
-[zoogie]: Creator of seedminer.
+[zoogie](https://github.com/zoogie): Creator of seedminer.
 
-[figgyc]: Creator of the original seedhelper script which is the basis for this script.
+[figgyc](https://github.com/figgyc): Creator of the original seedhelper script which is the basis for this script.
 
-[noirscape]: Added functionality that tells you how many seeds you've mined.
+[noirscape](https://github.com/noirscape): Added functionality that tells you how many seeds you've mined.
 
-[deadphoenix8091]: Creator of BruteforceMovable and added the ability to set your "miner name".
+[deadphoenix8091](https://github.com/deadphoenix8091): Creator of BruteforceMovable and added the ability to set your "miner name".
 
-[Mike15678]: Maintainer of the BruteforceMovable autolauncher script and adding new features if need be.
+[Mike15678](https://github.com/Mike15678): Maintainer of the BruteforceMovable autolauncher script and adding new features if need be.
