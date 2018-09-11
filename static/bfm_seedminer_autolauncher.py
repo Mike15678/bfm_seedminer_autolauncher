@@ -306,8 +306,8 @@ if __name__ == "__main__":
     if os.path.isfile("movable.sed"):
         os.remove("movable.sed")
 
-    if os.path.isfile("total_mined"):
-        with open("total_mined", "rb") as file:
+    if os.path.isfile(BFM_DIR + TM):
+        with open(BFM_DIR + TM, "rb") as file:
             total_mined = pickle.load(file)
     else:
         total_mined = 0
@@ -316,8 +316,8 @@ if __name__ == "__main__":
     print("Updating seedminer db...")
     subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
 
-    if os.path.isfile("miner_name"):
-        with open("miner_name", "rb") as file:
+    if os.path.isfile(BFM_DIR + MN):
+        with open(BFM_DIR + MN, "rb") as file:
             miner_name = pickle.load(file)
     else:
         print("No username set, which name would you like to have on the leaderboards?\n"
@@ -329,13 +329,13 @@ if __name__ == "__main__":
                 continue
             else:
                 break
-        with open("miner_name", "wb") as file:
+        with open(BFM_DIR + MN, "wb") as file:
             pickle.dump(miner_name, file, protocol=3)
 
     print("Welcome " + miner_name + ", your mining effort is truly appreciated!")
 
-    if os.path.isfile("benchmark"):
-        with open("benchmark", "rb") as file:
+    if os.path.isfile(BFM_DIR + BENCHM):
+        with open(BFM_DIR + BENCHM, "rb") as file:
             benchmark_success = pickle.load(file)
         if benchmark_success == 1:
             print("Detected past benchmark! You're good to go!")
@@ -366,7 +366,7 @@ if __name__ == "__main__":
             sys.exit(1)
         if timeFinish > timeTarget:
             print("\nYour graphics card is too slow to help BruteforceMovable!")
-            with open("benchmark", "wb") as file:
+            with open(BFM_DIR + BENCHM, "wb") as file:
                 pickle.dump(0, file, protocol=3)
             print("If you ever get a new graphics card, feel free to delete the 'benchmark' file"
                   " and then rerun this script to start a new benchmark")
@@ -374,7 +374,7 @@ if __name__ == "__main__":
             sys.exit(0)
         else:
             print("\nYour graphics card is strong enough to help BruteforceMovable!\n")
-            with open("benchmark", "wb") as file:
+            with open(BFM_DIR + BENCHM, "wb") as file:
                 pickle.dump(1, file, protocol=3)
 
     while True:
@@ -450,7 +450,7 @@ if __name__ == "__main__":
                                 os.remove(latest_file)
                                 total_mined += 1
                                 print("Total seeds mined: {}".format(total_mined))
-                                with open("total_mined", "wb") as file:
+                                with open(BFM_DIR + TM, "wb") as file:
                                     pickle.dump(total_mined, file, protocol=3)
                                 if quit_after_job is True:
                                     print("\nQuiting by earlier request...")
@@ -476,8 +476,8 @@ if __name__ == "__main__":
                     elif os.path.isfile("movable.sed") is False and skipUploadBecauseJobBroke is False:
                         s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
                         currentid = ""
-                        if os.path.isfile("benchmark"):
-                            os.remove("benchmark")
+                        if os.path.isfile(BFM_DIR + BENCHM):
+                            os.remove(BFM_DIR + BENCHM)
                         print("It seems that the graphics card brute-forcer (bfCL) wasn't able to run correctly")
                         print("Please try figuring this out before running this script again")
                         input("Press the Enter key to quit")
