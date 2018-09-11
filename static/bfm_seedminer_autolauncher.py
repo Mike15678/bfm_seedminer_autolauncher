@@ -244,8 +244,6 @@ def move_files_if_needed():
         os.rename(BENCHM, BFM_DIR + BENCHM)
     if os.path.isfile("minername"):  # Old "miner name" file
         os.rename("minername", BFM_DIR + MN)
-    if os.path.isfile(MN):
-        os.rename(MN, BFM_DIR + MN)
     if os.path.isfile(TM):
         os.rename(TM, BFM_DIR + TM)
 
