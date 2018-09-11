@@ -14,7 +14,8 @@ import traceback
 import re
 import urllib.parse
 
-logging.basicConfig(level=logging.DEBUG, filename='bfm_autolauncher.log', filemode='w')
+os.makedirs("bfm", exist_ok=True) # Creates bfm info dir, doing this before setting up logging so that logs can be written to this dir.
+logging.basicConfig(level=logging.DEBUG, filename='bfm/bfm_autolauncher.log', filemode='w')
 
 s = requests.Session() 
 baseurl = "https://bruteforcemovable.com"
@@ -102,9 +103,9 @@ if r0.text != currentVersion:
     subprocess.call([sys.executable, "bfm_seedminer_autolauncher.py"])
     sys.exit(0)
 
-if os.path.isfile("bfm_autolauncher_exception.log"):
+if os.path.isfile("bfm/bfm_autolauncher_exception.log"):
     try:
-        os.remove("bfm_autolauncher_exception.log")
+        os.remove("bfm/bfm_autolauncher_exception.log")
     except OSError:
         pass  # We'll try again next time
 
@@ -127,8 +128,8 @@ with open('seedminer_launcher3.py') as f:
 if os.path.isfile("movable.sed"):
     os.remove("movable.sed")
 
-if os.path.isfile("total_mined"):
-    with open("total_mined", "rb") as file:
+if os.path.isfile("bfm/total_mined"):
+    with open("bfm/total_mined", "rb") as file:
         total_mined = pickle.load(file)
 else:
     total_mined = 0
@@ -138,19 +139,19 @@ print("Updating seedminer db...")
 subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
 
 miner_name = ""
-if os.path.isfile("minername"):
-    with open("minername", "rb") as file:
+if os.path.isfile("bfm/minername"):
+    with open("bfm/minername", "rb") as file:
         miner_name = pickle.load(file)
 else:
     miner_name = input("No username set, which name would you like to have on the leaderboards? \n (Allowed Characters a-Z 0-9 - _ | ): ")
-    with open("minername", "wb") as file:
+    with open("bfm/minername", "wb") as file:
         pickle.dump(miner_name, file)
 		
 miner_name = re.sub('[^a-zA-Z0-9\_\-\|]+' ,'', miner_name)
 print("Welcome " + miner_name + ", really appreciate your mining effort!")
 
-if os.path.isfile("benchmark"):
-    with open("benchmark", "rb") as file:
+if os.path.isfile("bfm/benchmark"):
+    with open("bfm/benchmark", "rb") as file:
         benchmark_success = pickle.load(file)
     if benchmark_success == 1:
         print("Detected past benchmark! You're good to go!")
@@ -180,7 +181,7 @@ else:
         sys.exit(1)
     if timeFinish > timeTarget:
         print("\nYour graphics card is too slow to help BruteforceMovable!")
-        with open("benchmark", "wb") as file:
+        with open("bfm/benchmark", "wb") as file:
             pickle.dump(0, file)
         print("If you ever get a new graphics card, feel free to delete the 'benchmark' file"
               " and then rerun this script to start a new benchmark")
@@ -188,7 +189,7 @@ else:
         sys.exit(0)
     else:
         print("\nYour graphics card is strong enough to help BruteforceMovable!\n")
-        with open("benchmark", "wb") as file:
+        with open("bfm/benchmark", "wb") as file:
             pickle.dump(1, file)
 
 while True:
@@ -260,7 +261,7 @@ while True:
                             os.remove(latest_file)
                             total_mined += 1
                             print("Total seeds mined: {}".format(total_mined))
-                            with open("total_mined", "wb") as file:
+                            with open("bfm/total_mined", "wb") as file:
                                 pickle.dump(total_mined, file)
                             print("press ctrl-c if you would like to quit")
                             time.sleep(5)
@@ -279,8 +280,8 @@ while True:
                 elif os.path.isfile("movable.sed") is False and skipUploadBecauseJobBroke is False:
                     s.get(baseurl + "/killWork?task=" + currentid + "&kill=n")
                     currentid = ""
-                    if os.path.isfile("benchmark"):
-                        os.remove("benchmark")
+                    if os.path.isfile("bfm/benchmark"):
+                        os.remove("bfm/benchmark")
                     print("It seems that the graphics card brute-forcer (bfCL) wasn't able to run correctly")
                     print("Please try figuring this out before running this script again")
                     input("Press the Enter key to exit")
