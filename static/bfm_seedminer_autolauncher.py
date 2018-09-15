@@ -27,6 +27,7 @@ try:
     import datetime
 except ImportError:
     datetime = None
+import errno
 import glob
 try:
     import logging
@@ -116,7 +117,10 @@ def signal_handler(sig, frame):
 
 
 def python_check():
-    """A simple check to see if the Python version being used is supported."""
+    """A simple check to see if the Python version being used is supported.
+    If the Python version is supported, then a check will make sure that "sys.executable" points
+    to a valid Python interpreter path.
+    """
     if sys.version_info < (3, 0):
         print("Python %s.%s.%s is not supported! Please use Python 3.3.0 or later!" % sys.version_info[0:3])
         try:
@@ -128,6 +132,11 @@ def python_check():
         sys.exit(1)
     elif sys.version_info < (3, 3):
         print("Python {}.{}.{} is not supported! Please use Python 3.3.0 or later!".format(*sys.version_info))
+        input("Press the Enter key to quit")
+        sys.exit(1)
+    elif sys.executable is None or sys.executable == '':
+        print("Error: Unable to determine the path to the Python interpreter!")
+        print("Try reinstalling Python 3 and see if you still receive this error message.")
         input("Press the Enter key to quit")
         sys.exit(1)
 
@@ -203,7 +212,7 @@ def download_file(url, local_filename):
     return local_filename
 
 
-def program_check():
+def program_and_file_check():
     """A check that determines if there are any missing programs on your computer."""
     check_failures = 0
     if sys.platform in {'win32', 'cygwin', 'msys'}:
@@ -228,18 +237,22 @@ def program_check():
         sys.exit(1)
 
 
+def make_bfm_dir_if_needed():
+    try:
+        os.makedirs(BFM_DIR)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            print('\nCreating a "{}" directory!'.format(BFM_DIR))
+        else:
+            print('\nError while creating a "{}" directory!'.format(BFM_DIR))
+            if currentid != '':
+                bfcl_process_killer()
+            raise
+
+
 def move_files_if_needed():
     """A function that moves files in the current directory into a new folder if needed."""
-    if not os.path.isdir(BFM_DIR):
-        print('NOTE: Did not detect a "{}" folder in the current directory!\n'
-              'Creating one...'.format(BFM_DIR))
-        os.makedirs(BFM_DIR)
-
-    try:
-        if os.path.isfile(BFM_LOG):
-            os.remove(BFM_LOG)
-    except OSError:
-        pass  # We'll try again next time
+    make_bfm_dir_if_needed()
     if os.path.isfile(BENCHM):
         os.rename(BENCHM, BFM_DIR + BENCHM)
     if os.path.isfile("minername"):  # Old "miner name" file
@@ -249,16 +262,26 @@ def move_files_if_needed():
 
 
 def check_for_updates():
-    """A function that simply checks for updates to this script
-    """
+    """A function that checks for updates to this script and to the "msed_data" database."""
     print("Checking for updates...")
     r0 = s.get(UPDATE_URL + "/static/autolauncher_version")
     if r0.text != CURRENT_VERSION:
         print("Updating...")
         download_file(UPDATE_URL + "/static/bfm_seedminer_autolauncher.py",
                       "bfm_seedminer_autolauncher.py")
-        subprocess.call([sys.executable, "bfm_seedminer_autolauncher.py"])
-        sys.exit(0)
+        logging.shutdown()
+        try:
+            subprocess.call([sys.executable, "bfm_seedminer_autolauncher.py"])
+            sys.exit(0)
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                print('Unable to find "bfm_seedminer_autolauncher.py" in the current directory!')
+                input("Press the Enter key to exit")
+                sys.exit(1)
+    else:
+        print("No script update available")
+        print("Updating seedminer db...")
+        subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
 
 
 if __name__ == "__main__":
@@ -274,8 +297,8 @@ if __name__ == "__main__":
 
     python_check()
     os_and_arch_check()
-
-    program_check()
+    requests_module_check()
+    program_and_file_check()
 
     move_files_if_needed()
 
@@ -313,9 +336,6 @@ if __name__ == "__main__":
         total_mined = 0
     print("Total seeds mined previously: {}".format(total_mined))
 
-    print("Updating seedminer db...")
-    subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
-
     if os.path.isfile(BFM_DIR + MN):
         with open(BFM_DIR + MN, "rb") as file:
             miner_name = pickle.load(file)
@@ -337,7 +357,7 @@ if __name__ == "__main__":
     if os.path.isfile(BFM_DIR + BENCHM):
         with open(BFM_DIR + BENCHM, "rb") as file:
             benchmark_success = pickle.load(file)
-        if benchmark_success == 1:
+        if benchmark_success:
             print("Detected past benchmark! You're good to go!")
         elif benchmark_success == 0:
             print("Detected past benchmark! Your graphics card was too slow to help BruteforceMovable!")
