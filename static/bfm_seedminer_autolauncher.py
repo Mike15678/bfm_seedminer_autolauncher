@@ -39,6 +39,10 @@ try:
     import platform
 except ImportError:
     platform = None
+try:
+    import psutil
+except ImportError:
+    psutil = None
 import re
 try:
     import requests
@@ -73,25 +77,32 @@ else:
 
 
 def signal_handler(sig, frame):
-    """A signal handler that handles the action of pressing Ctrl + C.
-
-    Note that if bfCL was running, we've already killed it by pressing Ctrl + C.
-    """
+    """A signal handler that handles the action of pressing Ctrl + C."""
     global active_job, currentid, on_ctrlc_kill_when_prompt, quit_after_job
     signal.signal(signal.SIGINT, original_sigint)  # This restores the original sigint handler
     if currentid != "" and active_job is True:
         active_job = False
-        print("Requeuing job for another person to mine...")
-        s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
-        print("Note that if you would like to kill a job instead,"
-              " please let the script run until a job is auto-killed!")
-        try:
-            input("Press the Enter key to quit")
-        except KeyboardInterrupt:
-            print("Alright, quitting...")
-            time.sleep(1)
-            sys.exit(0)
-        sys.exit(0)
+        psutil_process = get_children_processes(process.pid)
+        for proc in psutil_process:
+            proc.suspend()
+        while True:
+            quit_input = input("Requeue job and quit, or continue job? [r/c]: ")
+            if quit_input.lower().startswith('r'):
+                print("Requeueing job...")
+                s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
+                kill_process_tree(process.pid)
+                print("Note that if you would like to kill a job instead,"
+                      " please let the script run until a job is auto-killed!")
+                input("Press the Enter key to quit")
+                sys.exit(0)
+            elif quit_input.lower().startswith('c'):
+                for proc in psutil_process:
+                    proc.resume()
+                signal.signal(signal.SIGINT, signal_handler)
+                break
+            else:
+                print("Please enter in a valid choice!")
+                continue
     elif on_ctrlc_kill_when_prompt is True:
         on_ctrlc_kill_when_prompt = False
         while True:
@@ -118,6 +129,7 @@ def signal_handler(sig, frame):
 
 def python_check():
     """A simple check to see if the Python version being used is supported.
+
     If the Python version is supported, then a check will make sure that "sys.executable" points
     to a valid Python interpreter path.
     """
@@ -174,7 +186,7 @@ def requests_module_check():
                       "to the latest Python 3 version")
             if sys.platform == 'win32':
                 print("Once that's done, you can open an administrator\n"
-                      "command prompt/Powershell window and then enter\n"
+                      "Command Prompt/Powershell window and then enter\n"
                       'in "py -3 -m pip install requests" (without the quotes)')
             elif sys.platform == 'darwin':
                 print("Once that's done, you can enter\n"
@@ -189,12 +201,53 @@ def requests_module_check():
                       'entering in "python3 -m pip install --user requests" (without the quotes)')
 
 
-def bfcl_process_killer():
-    """A function that kills bfCL using your OS's process manager."""
-    if sys.platform in {'win32', 'cygwin', 'msys'}:
-        subprocess.call(["taskkill", "/IM", "bfcl.exe", "/F"])
-    else:
-        subprocess.call(["killall", "-9", "bfcl"])
+def psutil_module_check():
+    """A check that determines if the "psutil" module is installed on your computer
+    and provides instructions on how to install it.
+    """
+    if psutil is None:
+        print('The "psutil" module is not installed on this computer!\n'
+              'Please install it via pip and then feel free to rerun this script\n'
+              'Note: This is a new requirement')
+        if sys.platform in {'win32', 'darwin'}:
+            if sys.version_info < (3, 4):
+                print("That being said, it would seem that your computer is running a Python version\n"
+                      "that is less than 3.4\n"
+                      "This usually means that pip is NOT installed so please consider updating\n"
+                      "to the latest Python 3 version")
+            if sys.platform == 'win32':
+                print("Once that's done, you can open an administrator\n"
+                      "Command Prompt/Powershell window and then enter\n"
+                      'in "py -3 -m pip install psutil" (without the quotes)')
+            elif sys.platform == 'darwin':
+                print("Once that's done, you can enter\n"
+                      'in "py -3 -m pip install --user psutil" (without the quotes)')
+            input("Press the Enter key to quit")
+        else:
+            if sys.platform in {'cygwin', 'msys'}:
+                print("For Cygwin-like environments, this can generally be done by\n"
+                      'entering in "python3 -m pip install --user psutil" (without the quotes)')
+            elif sys.platform in {'darwin', 'linux'}:
+                print("For Linux/macOS, this can generally be done by\n"
+                      'entering in "python3 -m pip install --user psutil" (without the quotes)')
+
+
+def get_children_processes(parent_process_pid):
+    """A function that determines the children started by a parent process
+    and returns them."""
+    parent = psutil.Process(parent_process_pid)
+    children = parent.children(recursive=True)
+    return children
+
+
+def kill_process_tree(pid, including_parent=True):
+    """A function that kills a parent prcoess and its children using psutil."""
+    parent = psutil.Process(pid)
+    children = parent.children(recursive=True)
+    psutil.wait_procs(children, timeout=5)
+    if including_parent:
+        parent.kill()
+        parent.wait(5)
 
 
 # https://stackoverflow.com/a/16696317 thx
@@ -246,7 +299,7 @@ def make_bfm_dir_if_needed():
         else:
             print('\nError while creating a "{}" directory!'.format(BFM_DIR))
             if currentid != '':
-                bfcl_process_killer()
+                kill_process_tree(process.pid)
             raise
 
 
@@ -286,7 +339,9 @@ def check_for_updates():
 
 if __name__ == "__main__":
     # Not constants; just setting these here
+    sys.exit(0)  # Everything is probably broken, let's just put this here
     currentid = ""
+    process = None
     active_job = False
     on_ctrlc_kill_when_prompt = False
     quit_after_job = False
@@ -298,6 +353,7 @@ if __name__ == "__main__":
     python_check()
     os_and_arch_check()
     requests_module_check()
+    psutil_module_check()
     program_and_file_check()
 
     move_files_if_needed()
@@ -435,7 +491,7 @@ if __name__ == "__main__":
                                 skipUploadBecauseJobBroke = True
                                 active_job = False
                                 print("\nJob cancelled or expired, killing...")
-                                bfcl_process_killer()
+                                kill_process_tree(process.pid)
                                 print("press ctrl-c if you would like to quit")
                                 on_ctrlc_kill_when_prompt = True
                                 time.sleep(5)
@@ -504,9 +560,9 @@ if __name__ == "__main__":
                         sys.exit(1)
         except Exception:
             active_job = False
-            if currentid != "":
+            if currentid != "" and process is not None:
                 s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
-                bfcl_process_killer()
+                kill_process_tree(process.pid)
                 currentid = ""
             print("\nError")
             traceback.print_exc()
