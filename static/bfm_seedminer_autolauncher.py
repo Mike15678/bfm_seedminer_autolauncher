@@ -68,7 +68,7 @@ BENCHM = "benchmark"
 MN = "miner_name"  # Newly named "miner name" file
 TM = "total_mined"
 BASE_URL = "https://bruteforcemovable.com"
-UPDATE_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/blob/master"
+UPDATE_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/raw/master"
 CURRENT_VERSION = "2.6.1"  # TODO: 2.6.1 -> 3.0.0
 BFM_DIR = "bfm_misc/"
 
