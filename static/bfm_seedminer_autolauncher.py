@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 figgyc, Valentijn V., deadphoenix8091, Michael M.
+# Copyright (c) 2018 figgyc, Valentijn "noirscape" V., deadphoenix8091, Michael "Mike15678" M.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from __future__ import print_function
 try:
     import datetime
 except ImportError:
@@ -55,6 +54,10 @@ try:
 except ImportError:
     subprocess = None
 import sys
+try:
+    import sysconfig
+except ImportError:
+    sysconfig = None
 import time
 import traceback
 try:
@@ -62,27 +65,30 @@ try:
 except ImportError:
     urllib = None
 
-# Constants
-BFM_LOG = "bfm_seedminer_autolauncher.log"  # Newly named log file
-BENCHM = "benchmark"
-MN = "miner_name"  # Newly named "miner name" file
-TM = "total_mined"
+# Website Constants
 BASE_URL = "https://bruteforcemovable.com"
 UPDATE_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/raw/master"
-CURRENT_VERSION = "2.6.1"  # TODO: 2.6.1 -> 3.0.0
+CURRENT_VERSION = "3.0.0-dev"  # TODO: 3.0.0-dev -> 3.0.0-beta -> 3.0.0-stable
+# psutil stuff is broken, don't run!
+
+# File/Folder Constants
+BFM_LOG = "bfm_seedminer_autolauncher.log"  # Newly named log file
+BENCHM = "benchmark"
+SEEDMINER_AUTOLAUNCHER = "bfm_seedminer_autolauncher.py"
+MN = "miner_name"  # Newly named "miner name" file
+TM = "total_mined"
 BFM_DIR = "bfm_misc/"
 
-ALL_WINDOWS = sys.platform in {'win32', 'cygwin', 'msys'}
-PURE_WINDOWS = sys.platform in {'win32'}
-DEV_WINDOWS = sys.platform in {'cygwin', 'msys'}
-MACOS = sys.platform in {'darwin'}
-LINUX = sys.platform in {'linux', 'linux2'}
-PURE_WINDOWS_OR_MACOS = sys.platform in {'win32', 'darwin'}
-MACOS_OR_LINUX = sys.platform in {'darwin', 'linux', 'linux2'}
+# OS Constants
+WINDOWS = sys.platform == 'win32'
+MACOS = sys.platform == 'darwin'
+LINUX = sys.platform == 'linux'
+WINDOWS_OR_MACOS = sys.platform in {'win32', 'darwin'}
+MACOS_OR_LINUX = sys.platform in {'darwin', 'linux'}
 
 
 def enter_key_quit_message():
-    """Just a function that makes a person (hopefully) press the Enter key.
+    """Makes a person (hopefully) press the Enter key.
 
     The caller is responsible for quitting the script.
     """
@@ -90,7 +96,7 @@ def enter_key_quit_message():
 
 
 def signal_handler(sig, frame):
-    """A signal handler that handles the action of pressing Ctrl + C."""
+    """A signal handler that handles the action of pressing Ctrl + C (SIGINT)."""
     # Gotta love our globals :)
     global active_job, currentid, on_ctrlc_kill_when_prompt, quit_after_job
     signal.signal(signal.SIGINT, original_sigint)  # This restores the original sigint handler
@@ -161,17 +167,19 @@ def python_check():
     If the Python version is supported, then a check will make sure that "sys.executable" points
     to a valid Python interpreter path.
     """
-    if sys.version_info < (3, 0):
-        print("Python %s.%s.%s is not supported! Please use Python 3.3.0 or later!" % sys.version_info[0:3])
+    if sys.version_info < (3, 0):  # This check should work with Python 2.0.0+
+        sys.stdout.write("Python %s.%s.%s is not supported!"
+                         " Please use Python 3.3.0 or later!\n" % sys.version_info[0:3])
         try:
             raw_input("Press the Enter key to quit...")
         except NameError:  # More or less a workaround for pyflakes
-            # If this somehow happens on a real Python installation, uhh....
+            # If this somehow happens on a real Python installation, uhh...
             raw_input = None
             assert raw_input is None
+            time.sleep(5)
         sys.exit(1)
-    elif sys.version_info < (3, 3):
-        print("Python {}.{}.{} is not supported! Please use Python 3.3.0 or later!".format(*sys.version_info))
+    elif sys.version_info < (3, 4, 1):
+        print("Python {}.{}.{} is not supported! Please use Python 3.4.1 or later!".format(*sys.version_info))
         enter_key_quit_message()
         sys.exit(1)
     elif sys.executable is None or sys.executable == '':
@@ -181,23 +189,24 @@ def python_check():
         sys.exit(1)
 
 
-def os_and_arch_check():
-    """A check that determines if your computer is 64-bit and if the OS is supported."""
+def arch_and_os_check():
+    """An experimental check that determines if your computer is 64-bit and if the OS is supported."""
     computer_architecture = platform.machine()
     supported_architecture = computer_architecture.endswith('64')
     # Yes, it's possible that it can't determine your processor's architecture
     if not supported_architecture and computer_architecture != '':
-        print("You are using an unsupported computer architecture: {}!\n"
-              "This script only works on 64-bit computers".format(platform.machine()[-2:]))
+        print("You are using an unsupported computer architecture ({}-bit)!\n"
+              "This script only works on 64-bit (Windows, macOS, and Linux) computers.".format(platform.machine()[-2:]))
         print("If you believe to have received this message in mistake,\n"
               "feel free to make a GitHub issue here:\n"
               "https://github.com/Mike15678/bfm_seedminer_autolauncher/issues")
         enter_key_quit_message()
         sys.exit(1)
-    supported_os = sys.platform in {'win32', 'cygwin', 'msys', 'darwin', 'linux', 'linux2'}
+    supported_os = sys.platform in {'win32', 'darwin', 'linux'}
     if not supported_os:
-        print("You are using an unsupported Operating System: {}!\n"
-              "This script only works on Windows, macOS, and Linux".format(sys.platform))
+        print("You are using an unsupported Operating System\n"
+              "or environment ({})!\n"
+              "This script only works on (64-bit) Windows, macOS, and Linux computers.".format(sys.platform))
         enter_key_quit_message()
         sys.exit(1)
 
@@ -207,7 +216,7 @@ def missing_module_check():
     and provides instructions on how to install them if not.
     """
     modules_to_install = None
-    if (requests and psutil) is None:
+    if requests is None and psutil is None:
         print('The "requests" and "psutil" Python modules are not installed on this computer!\n'
               'Please install them via pip and then feel free to rerun this script')
         modules_to_install = "requests psutil"
@@ -219,25 +228,11 @@ def missing_module_check():
         print('The "psutil" module is not installed on this computer!\n'
               'Please install it via pip and then feel free to rerun this script')
         modules_to_install = "psutil"
-    if (requests or psutil) is None:
-        if PURE_WINDOWS_OR_MACOS and sys.version_info < (3, 4):
-            print("That being said, it would seem that your computer is running\n"
-                  "a Python version that is less than 3.4\n"
-                  "This usually means that pip is NOT installed so please consider updating\n"
-                  "to the latest Python 3 version")
-            if PURE_WINDOWS:
-                print("Once that's done, you can enter\n"
-                      'in "py -3 -m pip install --user {}" (without the quotes)'.format(modules_to_install))
-            else:
-                print("Once that's done, you can enter\n"
-                      'in "python3 -m pip install --user {}" (without the quotes)'.format(modules_to_install))
-        elif PURE_WINDOWS:
+    if requests is None or psutil is None:
+        if WINDOWS:
             print("For Windows, this can generally be done by\n"
                   'entering in "py -3 -m pip install --user {}" (without the quote)'.format(modules_to_install))
-        elif DEV_WINDOWS:
-            print("For Cygwin-like environments, this can generally be done by\n"
-                  'entering in "python3 -m pip install --user {}" (without the quotes)'.format(modules_to_install))
-        elif MACOS_OR_LINUX:
+        else:
             print("For Linux/macOS, this can generally be done by\n"
                   'entering in "python3 -m pip install --user {}" (without the quotes)'.format(modules_to_install))
         enter_key_quit_message()
@@ -245,7 +240,7 @@ def missing_module_check():
 
 
 def get_children_processes(parent_process_pid):
-    """A function that determines the children started by a parent process
+    """Determines the children started by a parent process
     and then returns them."""
     parent = psutil.Process(parent_process_pid)
     children = parent.children(recursive=True)
@@ -253,7 +248,7 @@ def get_children_processes(parent_process_pid):
 
 
 def kill_process_tree(pid, including_parent=True):
-    """A function that kills a parent process and its children using psutil."""
+    """Kills a parent process and its children using psutil."""
     parent = psutil.Process(pid)
     children = parent.children(recursive=True)
     psutil.wait_procs(children, timeout=5)
@@ -264,7 +259,7 @@ def kill_process_tree(pid, including_parent=True):
 
 # https://stackoverflow.com/a/16696317 thx
 def download_file(url, local_filename):
-    """A function that downloads files and returns the name of the file
+    """Downloads files and returns the name of the file
     that is saved locally.
     """
     # NOTE the stream=True parameter
@@ -278,85 +273,94 @@ def download_file(url, local_filename):
 
 
 def file_check():
-    """A check that determines if there are any missing programs on your computer."""
+    """A check that determines if there are any missing files on your computer."""
     check_failures = 0
-    if sys.platform in {'win32', 'cygwin', 'msys'}:
-        proc_manager_name = "taskkill"
-        bfcl_name = "bfcl.exe"
+    if WINDOWS:
+        bfcl_name = 'bfcl.exe'
     else:
-        proc_manager_name = "killall"
-        bfcl_name = "bfcl"
-    check_1 = shutil.which(proc_manager_name)
-    if check_1 is None:
-        check_failures += 1
-        print('Error: Unable to find the program "{}"'.format(proc_manager_name))
-    if not os.path.isfile("seedminer_launcher3.py"):
-        check_failures += 1
-        print('Error: Unable to find the "seedminer_launcher3.py" script in the current directory')
+        bfcl_name = 'bfcl'
     if not os.path.isfile(bfcl_name):
         check_failures += 1
-        print('Error: Unable to find "{}" in the current directory'.format(bfcl_name))
-
+        print('Error: Unable to find "{}" in the current directory.\n'
+              'Try disabling your antivirus (if you have one) and then\n'
+              'redownload Seedminer:\n'
+              'https://github.com/Mike15678/seedminer/releases/tag/v2.1.5\n'
+              'and extract it,\n'
+              'and then copy this script ("{}")\n'
+              'inside of the new "seedminer" folder\n'
+              "After that's done, feel free to rerun this script".format(bfcl_name, SEEDMINER_AUTOLAUNCHER))
     if check_failures != 0:
         enter_key_quit_message()
         sys.exit(1)
 
 
 def make_bfm_dir_if_needed():
+    """Make a bfm_directory if it doesn't already exist."""
     try:
-        os.makedirs(BFM_DIR)
-    except OSError as e:
-        if e.errno == errno.EEXIST:
-            print('\nCreating a "{}" directory!'.format(BFM_DIR))
-        else:
-            print('\nError while creating a "{}" directory!'.format(BFM_DIR))
-            if currentid != '':
-                kill_process_tree(process.pid)
-            raise
+        if not os.path.isdir(BFM_DIR):
+            os.makedirs(BFM_DIR, exist_ok=True)
+    except OSError:
+        print('\nError while creating "{}" directory!'.format(BFM_DIR))
+        raise
 
 
 def move_files_if_needed():
-    """A function that moves files in the current directory into a new folder if needed."""
-    make_bfm_dir_if_needed()
+    """Moves files in the current directory into a new directory if needed.
+
+    New directories are made if they don't already exist."""
     try:
         if os.path.isfile(BENCHM):
-            os.rename(BENCHM, BFM_DIR + BENCHM)
+            os.renames(BENCHM, BFM_DIR + BENCHM)
     except OSError:
-
-    if os.path.isfile("minername"):  # Old "miner name" file
-        os.rename("minername", BFM_DIR + MN)
-    if os.path.isfile(TM):
-        os.rename(TM, BFM_DIR + TM)
+        print('\nError while moving "benchmark" file!')
+        raise
+    try:
+        if os.path.isfile("minername"):  # Old "miner name" file
+            os.renames("minername", BFM_DIR + MN)
+    except OSError:
+        print('\nError while moving and renaming "minername" file')
+        raise
+    try:
+        if os.path.isfile(TM):
+            os.renames(TM, BFM_DIR + TM)
+    except OSError:
+        print('\nError while moving "total_mined" file')
+        raise
+    try:
+        if os.path.isfile("bfm_autolauncher.log"):
+            os.renames("bfm_autolauncher.log", BFM_DIR + BFM_LOG)
+    except OSError:
+        print('\nError while moving and renaming "bfm_autolauncher.log" file.\n'
+              'This is normal if you just updated the script.')
 
 
 def check_for_updates():
-    """A function that checks for updates to this script and to the "msed_data" database."""
+    """Checks for updates to this script and for the msed db."""
     print("Checking for updates...")
     r0 = s.get(UPDATE_URL + "/static/autolauncher_version")
     if r0.text != CURRENT_VERSION:
-        print("Updating...")
-        download_file(UPDATE_URL + "/static/bfm_seedminer_autolauncher.py",
-                      "bfm_seedminer_autolauncher.py")
-        logging.shutdown()
+        print("Updating seedminer_autolauncher script...")
+        download_file(UPDATE_URL + "/static/" + SEEDMINER_AUTOLAUNCHER,
+                      SEEDMINER_AUTOLAUNCHER)
+        logging.shutdown()  # This is an important function I've been not using this whole time
         try:
-            subprocess.call([sys.executable, "bfm_seedminer_autolauncher.py"])
-            sys.exit(0)
+            subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
         except OSError as e:
             if e.errno == errno.ENOENT:
-                print('Unable to find "bfm_seedminer_autolauncher.py" in the current directory!')
-                enter_key_quit_message()
-                sys.exit(1)
+                print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                raise
             else:
-                print("Error while trying to ")
+                print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                raise
+        sys.exit(0)
     else:
-        print("No script update available")
+        print("No script update available!")
         print("Updating seedminer db...")
         subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
 
 
 if __name__ == "__main__":
     # Not constants; just setting these here
-    sys.exit(0)  # Everything is probably broken, let's just put this here
     currentid = ""
     process = None
     active_job = False
@@ -368,11 +372,11 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
 
     python_check()
-    os_and_arch_check()
-    requests_module_check()
-    psutil_module_check()
+    arch_and_os_check()
+    missing_module_check()
     file_check()
 
+    make_bfm_dir_if_needed()
     move_files_if_needed()
 
     logging.basicConfig(level=logging.DEBUG, filename=BFM_DIR + BFM_LOG, filemode='w')
@@ -394,13 +398,19 @@ if __name__ == "__main__":
                       "https://github.com/Mike15678/seedminer/releases/tag/v2.1.5\n"
                       "if you want to use this script!")
                 print("Please download and extract it,\n"
-                      "and copy this script inside of the new 'seedminer' folder\n"
-                      "After that's done, feel free to rerun this script")
+                      'and copy this script ("{}")\n'
+                      'inside of the new "seedminer" folder\n'
+                      "After that's done, feel free to rerun this script".format(SEEDMINER_AUTOLAUNCHER))
                 enter_key_quit_message()
                 sys.exit(0)
 
-    if os.path.isfile("movable.sed"):
-        os.remove("movable.sed")
+    try:
+        if os.path.isfile("movable.sed"):
+            os.remove("movable.sed")
+    except OSError as e_mov:
+        if e_mov.errno != errno.ENOENT:
+            print('Unable to delete "movable.sed" from the current directory!')
+            raise
 
     if os.path.isfile(BFM_DIR + TM):
         with open(BFM_DIR + TM, "rb") as file:
@@ -411,26 +421,36 @@ if __name__ == "__main__":
 
     if os.path.isfile(BFM_DIR + MN):
         with open(BFM_DIR + MN, "rb") as file:
-            miner_name = pickle.load(file)
+            miner_username = pickle.load(file)
+        if not re.match("^[a-zA-Z0-9_\-|]*$", miner_username):
+            print('Invalid character(s) detected in {} file!'.format(miner_username))
+            try:
+                os.remove(BFM_DIR + MN)
+            except OSError as e_mun:
+                if e_mun.errno != errno.ENOENT:
+                    print('Unable to delete "{}" file!')
+                    raise
+            print("Re-run this script to choose a new username")
+            sys.exit(1)
     else:
         print("No username set, which name would you like to have on the leaderboards?\n"
               "Allowed Characters are: a-Z 0-9 - |")
         while True:
-            miner_name = input("Enter your desired name: ")
-            if not re.match("^[a-zA-Z0-9_\-|]*$", miner_name):
+            miner_username = input("Enter your desired name: ")
+            if not re.match("^[a-zA-Z0-9_\-|]*$", miner_username):
                 print("Invalid character inputted!")
                 continue
             else:
                 break
         with open(BFM_DIR + MN, "wb") as file:
-            pickle.dump(miner_name, file, protocol=3)
+            pickle.dump(miner_username, file, protocol=3)
 
-    print("Welcome " + miner_name + ", your mining effort is truly appreciated!")
+    print("Welcome " + miner_username + ", your mining effort is truly appreciated!")
 
     if os.path.isfile(BFM_DIR + BENCHM):
         with open(BFM_DIR + BENCHM, "rb") as file:
             benchmark_success = pickle.load(file)
-        if benchmark_success:
+        if benchmark_success == 1:
             print("Detected past benchmark! You're good to go!")
         elif benchmark_success == 0:
             print("Detected past benchmark! Your graphics card was too slow to help BruteforceMovable!")
@@ -439,25 +459,27 @@ if __name__ == "__main__":
             enter_key_quit_message()
             sys.exit(0)
         else:
-            print("Either something weird happened or you tried to tamper with the benchmark result")
-            print("Feel free to delete the 'benchmark' file and then rerun this script to start a new benchmark")
+            print("Either something weird happened or you tried to mess with the benchmark result")
+            print("Feel free to delete the 'benchmark' file\n"
+                  "in your {} directory and then rerun\n"
+                  "this script to start a new benchmark".format(BFM_DIR))
             enter_key_quit_message()
             sys.exit(1)
     else:
         print("\nBenchmarking...")
-        timeTarget = time.time() + 215
+        time_target = time.time() + 215
         download_file(BASE_URL + "/static/impossible_part1.sed",
                       "movable_part1.sed")
         process = subprocess.call(
             [sys.executable, "seedminer_launcher3.py", "gpu", "0", "5"])
         if process == 101:
-            timeFinish = time.time()
+            time_finish = time.time()
         else:
             print("It seems that the graphics card brute-forcer (bfCL) wasn't able to run correctly")
             print("Please try figuring this out before running this script again")
             enter_key_quit_message()
             sys.exit(1)
-        if timeFinish > timeTarget:
+        if time_finish > time_target:
             print("\nYour graphics card is too slow to help BruteforceMovable!")
             with open(BFM_DIR + BENCHM, "wb") as file:
                 pickle.dump(0, file, protocol=3)
@@ -492,7 +514,7 @@ if __name__ == "__main__":
                     download_file(BASE_URL + '/getPart1?task=' +
                                   currentid, 'movable_part1.sed')
                     print("Bruteforcing " + str(datetime.datetime.now()))
-                    if ALL_WINDOWS:
+                    if WINDOWS:
                         process = psutil.Popen(
                             [sys.executable, "seedminer_launcher3.py", "gpu", "0", "80"], creationflags=0x00000200)
                     else:
@@ -539,14 +561,24 @@ if __name__ == "__main__":
                         while failed_upload_attempts < 3:
                             print("\nUploading...")
                             ur = s.post(BASE_URL + '/upload?task=' + currentid + "&minername="
-                                        + urllib.parse.quote_plus(miner_name), files={
+                                        + urllib.parse.quote_plus(miner_username), files={
                                          'movable': open('movable.sed', 'rb'), 'msed': open(latest_file, 'rb')})
                             print(ur.text)
                             if ur.text == "success":
                                 currentid = ""
                                 print("Upload succeeded!")
-                                os.remove("movable.sed")
-                                os.remove(latest_file)
+                                try:
+                                    os.remove("movable.sed")
+                                except OSError as e_mov2:
+                                    if e_mov2 != errno.ENOENT:
+                                        print('Unable to delete "movable.sed" from current directory!')
+                                        raise
+                                try:
+                                    os.remove(latest_file)
+                                except OSError as e_lf:
+                                    if e_lf != errno.ENOENT:
+                                        print('Unable to delete "msed_data_*.bin" from current directory!')
+                                        raise
                                 total_mined += 1
                                 print("Total seeds mined: {}".format(total_mined))
                                 with open(BFM_DIR + TM, "wb") as file:
