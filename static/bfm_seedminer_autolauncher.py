@@ -54,6 +54,7 @@ try:
 except ImportError:
     subprocess = None
 import sys
+import subprocess
 try:
     import sysconfig
 except ImportError:
@@ -217,17 +218,62 @@ def missing_module_check():
     """
     modules_to_install = None
     if requests is None and psutil is None:
-        print('The "requests" and "psutil" Python modules are not installed on this computer!\n'
-              'Please install them via pip and then feel free to rerun this script')
-        modules_to_install = "requests psutil"
+        if pip_install("requests psutil") is 0:
+            print('Installed the "requests" and "psutil" modules automatically.\n'
+                  'Please rerun this script.')
+            logging.shutdown()  # This is an important function I've been not using this whole time
+            try:
+                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+                else:
+                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+            sys.exit(0)
+        else:
+            print('The "requests" and "psutil" Python modules are not installed on this computer and could not be automatically installed!\n'
+                  'Please install them via pip and then feel free to rerun this script')
+            modules_to_install = "requests psutil"
     elif requests is None:
-        print('The "requests" module is not installed on this computer!\n'
-              'Please install it via pip and then feel free to rerun this script')
-        modules_to_install = "requests"
+        if pip_install("requests") is 0:
+            print('Installed the "requests" module automatically.\n'
+                  'Please rerun this script.')
+            logging.shutdown()  # This is an important function I've been not using this whole time
+            try:
+                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+                else:
+                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+            sys.exit(0)
+        else:
+            print('The "requests" module is not installed on this computer and could not be automatically installed!\n'
+                  'Please install it via pip and then feel free to rerun this script')
+            modules_to_install = "requests"
     elif psutil is None:
-        print('The "psutil" module is not installed on this computer!\n'
-              'Please install it via pip and then feel free to rerun this script')
-        modules_to_install = "psutil"
+        if pip_install("psutil") is 0:
+            print('Installed the "psutil" module automatically.\n'
+                  'Please rerun this script.')
+            logging.shutdown()  # This is an important function I've been not using this whole time
+            try:
+                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+                else:
+                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+            sys.exit(0)
+        else:
+            print('The "psutil" module is not installed on this computer and could not be automatically installed!\n'
+                  'Please install it via pip and then feel free to rerun this script')
+            modules_to_install = "psutil"
     if requests is None or psutil is None:
         if WINDOWS:
             print("For Windows, this can generally be done by\n"
@@ -238,6 +284,16 @@ def missing_module_check():
         enter_key_quit_message()
         sys.exit(1)
 
+def pip_multi_install(modules_to_install)
+    """Install the list of modules passed under "modules_to_install" with pip.
+    
+    Parameters:
+        modules_to_install (str): Modules that should be installed with pip. Should be a space separated str.
+        
+    Returns:
+        int: Exit code of subprocess call.
+    """
+    return subprocess.call([sys.executable, "-m", "pip", "install", "--user", module_to_install ])
 
 def get_children_processes(parent_process_pid):
     """Determines the children started by a parent process
