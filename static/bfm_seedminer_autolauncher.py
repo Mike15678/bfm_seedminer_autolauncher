@@ -221,8 +221,17 @@ def missing_module_check():
         if pip_install("requests psutil") is 0:
             print('Installed the "requests" and "psutil" modules automatically.\n'
                   'Please rerun this script.')
-            enter_key_quit_message()
-            sys.exit(1)
+            logging.shutdown()  # This is an important function I've been not using this whole time
+            try:
+                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+                else:
+                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+            sys.exit(0)
         else:
             print('The "requests" and "psutil" Python modules are not installed on this computer and could not be automatically installed!\n'
                   'Please install them via pip and then feel free to rerun this script')
@@ -231,8 +240,17 @@ def missing_module_check():
         if pip_install("requests") is 0:
             print('Installed the "requests" module automatically.\n'
                   'Please rerun this script.')
-            enter_key_quit_message()
-            sys.exit(1)
+            logging.shutdown()  # This is an important function I've been not using this whole time
+            try:
+                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+                else:
+                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+            sys.exit(0)
         else:
             print('The "requests" module is not installed on this computer and could not be automatically installed!\n'
                   'Please install it via pip and then feel free to rerun this script')
@@ -241,8 +259,17 @@ def missing_module_check():
         if pip_install("psutil") is 0:
             print('Installed the "psutil" module automatically.\n'
                   'Please rerun this script.')
-            enter_key_quit_message()
-            sys.exit(1)
+            logging.shutdown()  # This is an important function I've been not using this whole time
+            try:
+                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+                else:
+                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
+                    raise
+            sys.exit(0)
         else:
             print('The "psutil" module is not installed on this computer and could not be automatically installed!\n'
                   'Please install it via pip and then feel free to rerun this script')
