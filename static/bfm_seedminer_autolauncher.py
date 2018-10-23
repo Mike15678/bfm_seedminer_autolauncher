@@ -188,7 +188,12 @@ def python_check():
     if sys.version_info < (3, 4, 1):
         print("Python %d.%d.%d is not supported!\n"
               "Please use Python 3.4.1 or later!" % sys.version_info[0:3])
-        raw_input("Press the Enter key to quit...")
+        # Really, really bad workaround for pyflakes
+        try:
+            input = raw_input
+        except NameError:
+            pass
+        input("Press the Enter key to quit...")
         sys.exit(1)
     elif sys.version_info < (3, 4, 1):
         # Positional argument specifiers are needed in Python 3.0, apparently
@@ -697,8 +702,8 @@ if __name__ == "__main__":
                         while failed_upload_attempts < 3:
                             print("\nUploading...")
                             ur = s.post(BASE_URL + '/upload?task=' + currentid + "&minername="
-                                        + urllib.parse.quote_plus(miner_username), files={
-                                'movable': open('movable.sed', 'rb'), 'msed': open(latest_file, 'rb')})
+                                        + urllib.parse.quote_plus(miner_username),
+                                        files={'movable': open('movable.sed', 'rb'), 'msed': open(latest_file, 'rb')})
                             print(ur.text)
                             if ur.text == "success":
                                 currentid = ""
