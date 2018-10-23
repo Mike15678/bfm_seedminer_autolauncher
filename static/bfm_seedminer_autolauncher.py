@@ -19,16 +19,19 @@ logging.basicConfig(level=logging.DEBUG, filename='bfm_autolauncher.log', filemo
 s = requests.Session() 
 baseurl = "https://bruteforcemovable.com"
 currentid = ""
-currentVersion = "2.6.1"
+currentVersion = "2.6.2"
 ctrc_kills_al_script = True
 active_job = False
 os_name = os.name
+skipUploadBecauseJobBroke = False
 
 
 def signal_handler(sig, frame):
     # If bfCL was running, we've already killed it by pressing Ctr + C
     global active_job
     global currentid
+    global skipUploadBecauseJobBroke
+    skipUploadBecauseJobBroke = True
     if currentid != "" and active_job is True:
         active_job = False
         while True:
