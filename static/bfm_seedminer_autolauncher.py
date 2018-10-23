@@ -102,6 +102,7 @@ LOG_PREFIX = MISC_DIR + LOG_DIR + "bfm_seedminer_autolauncher"  # This is append
 
 # TODO: Add better documentation
 # TODO: Change wording from "Error while" to "An error occurred"...
+# TODO: Actually use the delete_file() function that I made
 
 
 def enter_key_quit_message():
@@ -364,9 +365,9 @@ def make_bfm_dir_if_needed():
 def make_log_dir_if_needed():
     """Makes a log directory if it doesn't already exist."""
     try:
-        os.makedirs(MISC_DIR + LOG_DIR)
+        os.makedirs(LOG_DIR)
     except OSError:
-        print('\nError while creating a "{}" directory!'.format(MISC_DIR + LOG_DIR))
+        print('\nError while creating a "{}" directory!'.format(LOG_DIR))
         raise
 
 
@@ -400,12 +401,12 @@ def delete_log_files_prompt():
     This prompt only appears if there are tens of log files.
     """
     if log_file_number_increment % 10 == 0:
-        print("There are currently {} log files inside of your"
-              + MISC_DIR + LOG_DIR + "directory".format(log_file_number_increment))
+        print('There are currently {} log files inside of your "{}" directory'.format(
+            log_file_number_increment, LOG_DIR))
         while True:
             log_file_input = input("Would you like to delete all except the most recent log file? [y/n]: ")
             if log_file_input.startswith('y'):
-                for log_file in glob.glob(MISC_DIR + LOG_DIR + LOG_PREFIX + '-*.log'):
+                for log_file in glob.glob(LOG_PREFIX + '-*.log'):
                     try:
                         os.remove(log_file)
                     except OSError as e:
@@ -510,10 +511,10 @@ if __name__ == "__main__":
     move_files_if_needed()
 
     log_file_number_increment = 0
-    while os.path.exists(MISC_DIR + LOG_DIR + LOG_PREFIX + "-{}.log".format(log_file_number_increment)):
+    while os.path.exists(LOG_PREFIX + "-{}.log".format(log_file_number_increment)):
         log_file_number_increment += 1
 
-    appended_log_file = MISC_DIR + LOG_DIR + LOG_PREFIX + "-{}.log".format(log_file_number_increment)
+    appended_log_file = LOG_PREFIX + "-{}.log".format(log_file_number_increment)
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG,
                         filename=appended_log_file, filemode='w')
 
@@ -547,20 +548,20 @@ if __name__ == "__main__":
             print('Unable to delete "movable.sed" from the current directory!')
             raise
 
-    if os.path.isfile(MISC_DIR + TM):
-        with open(MISC_DIR + TM, "rb") as file:
+    if os.path.isfile(TM):
+        with open(TM, "rb") as file:
             total_mined = pickle.load(file)
     else:
         total_mined = 0
     print("Total seeds mined previously: {}".format(total_mined))
 
-    if os.path.isfile(MISC_DIR + MN):
-        with open(MISC_DIR + MN, "rb") as file:
+    if os.path.isfile(MN):
+        with open(MN, "rb") as file:
             miner_username = pickle.load(file)
         if not re.match("^[a-zA-Z0-9_\-|]*$", miner_username):
             print('Invalid character(s) detected in your {} file!'.format(miner_username))
             try:
-                os.remove(MISC_DIR + MN)
+                os.remove(MN)
             except OSError as e_mun:
                 if e_mun.errno != errno.ENOENT:
                     print('Unable to delete "{}" file!')
@@ -577,13 +578,13 @@ if __name__ == "__main__":
                 continue
             else:
                 break
-        with open(MISC_DIR + MN, "wb") as file:
+        with open(MN, "wb") as file:
             pickle.dump(miner_username, file, protocol=3)
 
     print("Welcome {}, your mining effort is truly appreciated!".format(miner_username))
 
-    if os.path.isfile(MISC_DIR + BENCHM):
-        with open(MISC_DIR + BENCHM, "rb") as file:
+    if os.path.isfile(BENCHM):
+        with open(BENCHM, "rb") as file:
             benchmark_success = pickle.load(file)
         if benchmark_success == 1:
             print("Detected past benchmark! You're good to go!")
@@ -616,7 +617,7 @@ if __name__ == "__main__":
             sys.exit(1)
         if time_finish > time_target:
             print("\nYour graphics card is too slow to help BruteforceMovable!")
-            with open(MISC_DIR + BENCHM, "wb") as file:
+            with open(BENCHM, "wb") as file:
                 pickle.dump(0, file, protocol=3)
             print("If you ever get a new graphics card, feel free to delete the 'benchmark' file"
                   " and then rerun this script to start a new benchmark")
@@ -624,7 +625,7 @@ if __name__ == "__main__":
             sys.exit(0)
         else:
             print("\nYour graphics card is strong enough to help BruteforceMovable!\n")
-            with open(MISC_DIR + BENCHM, "wb") as file:
+            with open(BENCHM, "wb") as file:
                 pickle.dump(1, file, protocol=3)
 
     while True:
@@ -716,7 +717,7 @@ if __name__ == "__main__":
                                         raise
                                 total_mined += 1
                                 print("Total seeds mined: {}".format(total_mined))
-                                with open(MISC_DIR + TM, "wb") as file:
+                                with open(TM, "wb") as file:
                                     pickle.dump(total_mined, file, protocol=3)
                                 if quit_after_job is True:
                                     print("\nQuiting by earlier request...")
@@ -742,8 +743,8 @@ if __name__ == "__main__":
                     elif os.path.isfile("movable.sed") is False and skipUploadBecauseJobBroke is False:
                         s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
                         currentid = ""
-                        if os.path.isfile(MISC_DIR + BENCHM):
-                            os.remove(MISC_DIR + BENCHM)
+                        if os.path.isfile(BENCHM):
+                            os.remove(BENCHM)
                         print("It seems that the graphics card brute-forcer (bfCL) wasn't able to run correctly")
                         print("Please try figuring this out before running this script again")
                         enter_key_quit_message()
