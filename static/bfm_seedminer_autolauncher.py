@@ -28,22 +28,18 @@
 
 from __future__ import absolute_import, print_function, unicode_literals
 
+# sysconfig is included in Python 3.2+
 try:
-    import datetime
+    from sysconfig import get_platform
 except ImportError:
-    datetime = None
+    sysconfig = None
+import datetime
 import errno
 import glob
-try:
-    import logging
-except ImportError:
-    logging = None
+import logging
 import os
 import pickle
-try:
-    import platform
-except ImportError:
-    platform = None
+import platform
 try:
     import psutil
 except ImportError:
@@ -55,16 +51,8 @@ except ImportError:
     requests = None
 # import shutil
 import signal
-try:
-    import subprocess
-except ImportError:
-    subprocess = None
-import sys
 import subprocess
-try:
-    import sysconfig
-except ImportError:
-    sysconfig = None
+import sys
 import time
 import traceback
 try:
@@ -72,14 +60,19 @@ try:
 except ImportError:
     urllib = None
 
-# OS Constants
+# OS/Environment Constants
 WINDOWS = sys.platform == 'win32'
 MACOS = sys.platform == 'darwin'
 LINUX = sys.platform == 'linux'
+MINGW = get_platform() == 'mingw'  # Thanks a ton: https://stackoverflow.com/a/51200002
 # I'm calling the set() function for Python 2.6 functionality...
 WINDOWS_OR_MACOS = sys.platform in set(['win32', 'darwin'])
 MACOS_OR_LINUX = sys.platform in set(['darwin', 'linux'])
 SUPPORTED_OS = sys.platform in set(['win32', 'darwin', 'linux'])
+if MINGW:
+    CURRENT_OS_OR_ENVIRONMENT = 'mingw'
+else:
+    CURRENT_OS_OR_ENVIRONMENT = sys.platform
 
 # Website Constants
 BASE_URL = "https://bruteforcemovable.com"
@@ -221,10 +214,11 @@ def arch_and_os_check():
               "https://github.com/Mike15678/bfm_seedminer_autolauncher/issues")
         enter_key_quit_message()
         sys.exit(1)
-    if not SUPPORTED_OS:
+    if not SUPPORTED_OS or MINGW:
         print("You are using an unsupported Operating System\n"
               "or environment: {}\n"
-              "This script only works on (64-bit) Windows, macOS, and Linux computers.".format(sys.platform))
+              "This script only works on (64-bit) Windows, macOS, "
+              "and Linux computers.".format(CURRENT_OS_OR_ENVIRONMENT))
         enter_key_quit_message()
         sys.exit(1)
 
@@ -235,7 +229,7 @@ def missing_module_check():
     """
     modules_to_install = None
     if requests is None and psutil is None:
-        if pip_install("requests psutil") is 0:
+        if pip_install("requests psutil") == 0:
             print('Installed the "requests" and "psutil" modules automatically.\n'
                   'Please rerun this script.')
             logging.shutdown()  # This is an important function I've been not using this whole time
@@ -256,7 +250,7 @@ def missing_module_check():
                 'Please install them via pip and then feel free to rerun this script')
             modules_to_install = "requests psutil"
     elif requests is None:
-        if pip_install("requests") is 0:
+        if pip_install("requests") == 0:
             print('Installed the "requests" module automatically.\n'
                   'Please rerun this script.')
             logging.shutdown()  # This is an important function I've been not using this whole time
@@ -275,7 +269,7 @@ def missing_module_check():
                   'Please install it via pip and then feel free to rerun this script')
             modules_to_install = "requests"
     elif psutil is None:
-        if pip_install("psutil") is 0:
+        if pip_install("psutil") == 0:
             print('Installed the "psutil" module automatically.\n'
                   'Please rerun this script.')
             logging.shutdown()  # This is an important function I've been not using this whole time
@@ -304,14 +298,15 @@ def missing_module_check():
         sys.exit(1)
 
 
-def pip_multi_install(modules_to_install):
-    """Install the list of modules passed under "modules_to_install" with pip.
-    
-    Parameters:
-        modules_to_install (str): Modules that should be installed with pip. Should be a space separated str.
-        
-    Returns:
-        int: Exit code of subprocess call.
+def pip_install(modules_to_install):
+    """Installs module(s) using pip.
+
+    :param modules_to_install: str: Modules that should be installed with pip. If installing
+        multiple modules, each module in the str should be separated with a space.
+        For example, to install psutil and requests, the string that should
+        be passed is "requests psutil".
+    :return: int: Exit code of subprocess call. A zero exit code is a
+        successful pip install while a non-zero exit code is a failed pip install.
     """
     return subprocess.call([sys.executable, "-m", "pip", "install", "--user", modules_to_install])
 
@@ -450,15 +445,16 @@ def check_for_updates():
         subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
 
 
+# TODO: Maybe rename the "except_all" parameter to "exist_ok"
 def delete_file(target_file, except_all=True, do_quit=True):
     """A simple function that utilizes os.remove() for deleting files, but accepts multiple parameters.
 
-    :param target_file: File you want to delete
+    :param target_file: File you want to delete.
     :param except_all: Defaults to True which shows an exception for all errno codes. Set to False if
         you don't want to show an exception for ENOENT errno codes (No such file or directory), but would
-        like to show an exception for everything else
+        like to show an exception for everything else.
     :param do_quit: Defaults to True which prompts and then quits the script. Set to False if you do not want
-        this behavior and would simply like to ignore the exception
+        this behavior and would simply like to ignore the exception.
     """
     try:
         os.remove(target_file)
