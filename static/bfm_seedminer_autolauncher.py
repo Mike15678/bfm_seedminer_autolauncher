@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Python 3.4.1+ script for use for retrieving jobs from https://bruteforcemovable.com. Use responsibly."""
 
 # MIT License
 #
@@ -22,227 +24,512 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# The following "__future__" imports are used so that Python 2.6-2.7 can exit gracefully
+from __future__ import absolute_import, division, print_function, unicode_literals
 
-# Reminder that this is a Python 3.4.1+ script, but Python 2.6 to 3.4.0 should
-# at least let you exit the script without an exception appearing.
-
-from __future__ import absolute_import, print_function, unicode_literals
-
-# sysconfig is included in Python 3.2+
-try:
-    from sysconfig import get_platform
-except ImportError:
-    sysconfig = None
+from errno import ENOENT
+from glob import glob
+from signal import signal, SIG_IGN, SIGINT
+from time import sleep, time
 import datetime
-import errno
-import glob
 import logging
 import os
+import os.path
 import pickle
 import platform
-try:
-    import psutil
-except ImportError:
-    psutil = None
 import re
-try:
-    import requests
-except ImportError:
-    requests = None
-# import shutil
-import signal
+import shutil
 import subprocess
 import sys
-import time
-import traceback
-try:
+
+if sys.version_info[0:3] >= (3, 0, 0):
+    # TODO: Maybe add configuration things in a future MINOR version for this script
+    # import configparser
     import urllib.parse
-except ImportError:
-    urllib = None
 
-# OS/Environment Constants
-WINDOWS = sys.platform == 'win32'
-MACOS = sys.platform == 'darwin'
-LINUX = sys.platform == 'linux'
-MINGW = get_platform() == 'mingw'  # Thanks a ton: https://stackoverflow.com/a/51200002
-# I'm calling the set() function for Python 2.6 functionality...
-WINDOWS_OR_MACOS = sys.platform in set(['win32', 'darwin'])
-MACOS_OR_LINUX = sys.platform in set(['darwin', 'linux'])
-SUPPORTED_OS = sys.platform in set(['win32', 'darwin', 'linux'])
-if MINGW:
-    CURRENT_OS_OR_ENVIRONMENT = 'mingw'
+if sys.version_info[0:3] >= (3, 1, 0):
+    import importlib
+
+if sys.version_info[0:3] >= (3, 4, 0):
+    # Required third party modules are to be found and then subsequently imported here
+    import importlib.util  # Thanks, https://stackoverflow.com/a/14050282
+    # This is technically TOCTTOU, but at least an ImportError exception would be raised
+    # if a module tries to be imported, but does not exist
+    # TODO: Evaluate all the potential risks of doing this
+    requests_spec = importlib.util.find_spec("requests")
+    if requests_spec is not None:
+        import requests
+    else:
+        requests = None
+    psutil_spec = importlib.util.find_spec("psutil")
+    if psutil_spec is not None:
+        import psutil
+    else:
+        psutil = None
 else:
-    CURRENT_OS_OR_ENVIRONMENT = sys.platform
+    requests = None
+    psutil = None
 
-# Website Constants
+# Script constants
+__version__ = "3.0.0"  # Meant to adhere to Semantic Versioning (MAJOR.MINOR.PATCH)
+# -----
+
+# Website constants
 BASE_URL = "https://bruteforcemovable.com"
-UPDATE_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/raw/master"
-CURRENT_VERSION = "3.0.0-dev"  # TODO: 3.0.0-dev -> 3.0.0-beta -> 3.0.0-stable
+UPDATE_BASE_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/raw/dev"
+ISSUE_TRACKER_URL = "https://github.com/Mike15678/bfm_seedminer_autolauncher/issues"
+# -----
 
-# File/Folder Constants
-MISC_DIR = "bfm_misc/"
+# OS constants
+# set() is used instead of set literals since Python 2.6 doesn't support them
+WINDOWS = sys.platform in set(["win32", "msys", "cygwin"])
+MACOS = sys.platform == "darwin"
+LINUX = sys.platform.startswith("linux")
+SUPPORTED_OS = True if (WINDOWS or MACOS or LINUX) else False
+# -----
+
+# File/Directory constants
+MISC_DIR = "bfm_seedminer_autolauncher_misc/"
 LOG_DIR = MISC_DIR + "logs/"
+BFCL = "bfcl"
 if WINDOWS:
-    BFCL = "bfcl.exe"
-else:
-    BFCL = "bfcl"
-SEEDMINER_AUTOLAUNCHER = "bfm_seedminer_autolauncher.py"
+    BFCL += ".exe"
 SEEDMINER_LAUNCHER = "seedminer_launcher3.py"
-BENCHM = MISC_DIR + "benchmark"
+SEEDMINER_AUTOLAUNCHER = "bfm_seedminer_autolauncher.py"
+BM = MISC_DIR + "benchmark"
 MN = MISC_DIR + "miner_name"  # TODO: Convert pickled "miner name" files to a bfm_config.ini file to allow easy editing
 TM = MISC_DIR + "total_mined"
-LOG_PREFIX = MISC_DIR + LOG_DIR + "bfm_seedminer_autolauncher"  # This is appended later in the script
+LOG_PREFIX = MISC_DIR + LOG_DIR + "bfm_seedminer_autolauncher"  # This string is appended later in the script
+# -----
 
-# TODO: Add better documentation
-# TODO: Change wording from "Error while" to "An error occurred"...
-# TODO: Actually use the delete_file() function that I made
+# Global variables
+if requests is not None:
+    s = requests.Session()  # Initialize a Requests Session for potential performance benefits
+currentid = None
+seedminer_launcher_proc = None
+active_job = False
+exit_after_job = False
+# -----
 
 
-def enter_key_quit_message():
-    """Makes a person (hopefully) press the Enter key.
+class ResponseContentTooLargeError(Exception):
+    """Define a custom exception which is used when a GET HTTP request's response content is too large."""
+    pass
 
-    WARNING: The caller is responsible for quitting the script.
+
+class RemoteJobError(Exception):
+    """Define a custom exception which is used when an HTTP request related to jobs
+    does not return a "successful" message in its response content."""
+    pass
+
+
+def enter_key_prompt():
+    """Prompt a user to press the Enter key.
+
+    The caller is responsible for exiting the script using sys.exit().
     """
-    input("Press the Enter key to quit...")
+    input("Press the Enter key to exit...")
+
+
+def log_critical_exception(msg):
+    """Convenience function for logging an exception at level CRITICAL.
+
+    For logging an exception at level ERROR, use
+    logging.exception() instead (including its required "msg" parameter).
+
+    :param msg: Message format string to log.
+    """
+    logging.critical(msg, exc_info=True)
+
+
+def remote_kill_work_request(kill_value):
+    """Utilize whatever is defined as BASE_URL and send a "/killWork" GET request with a query string.
+
+    The script exits if it could not make a successful GET request after three attempts.
+
+    :param kill_value: str: The value for the corresponding "kill" key that is sent.
+    :return: A None object only if currentid was assigned as a None object upon calling this function.
+    """
+    if currentid is None:
+        return
+    if kill_value == "y":
+        kill_string_to_print = "kill"
+    elif kill_value == "n":
+        kill_string_to_print = "requeue"
+    else:
+        kill_string_to_print = "interact with"
+    remaining_tries = 3
+    for i in range(0, 3, 1):
+        try:
+            r = s.get(BASE_URL + "/killWork", params={"task": currentid, "kill": kill_value}, timeout=5)
+            r.raise_for_status()
+            if r.text != "okay":
+                raise RemoteJobError("Server's response content was \"{}\"".format(r.text))
+            break
+        except (requests.exceptions.RequestException, RemoteJobError):
+            remaining_tries -= 1
+            logging.exception("An error occurred while trying to remotely {} your job".format(kill_string_to_print))
+            if i == 2:
+                logging.info("The script failed to remotely {} your job 3 times. "
+                             "Exiting...".format(kill_string_to_print))
+                enter_key_prompt()
+                sys.exit(1)
+            print("The script will try to remotely {} your job {} more "
+                  "time(s) before exiting!".format(kill_string_to_print, remaining_tries))
+            print("Waiting 10 seconds...")
+            sleep(10)
+            continue
+
+
+def kill_proc_tree(pid, include_parent=True, timeout=3):
+    """Kill a process tree (including grandchildren) with psutil."""
+    parent = psutil.Process(pid)
+    children = parent.children(recursive=True)
+    if include_parent:
+        children.append(parent)
+    access_denied_exception_occurred = False
+    for p in children:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            logging.info("A process with PID: {} was not found or no longer exists".format(p))
+        except psutil.AccessDenied:
+            access_denied_exception_occurred = True
+            log_critical_exception("Unable to kill a process with PID: {}".format(p))
+    if access_denied_exception_occurred:
+        logging.info("Failed to kill some processes. Exiting...")
+        # enter_key_prompt()
+        sys.exit(1)
+    gone, alive = psutil.wait_procs(children, timeout=timeout)
+    if alive:
+        # What else can we do? This shouldn't really happen...
+        for p in alive:
+            logging.critical("Unable to kill a process with PID: {}".format(p))
+        logging.info("Failed to kill some processes. Exiting...")
+        # enter_key_prompt()
+        sys.exit(1)
+
+
+def suspend_proc_tree(pid, include_parent=True):
+    """Suspend execution of a process tree (including grandchildren) with psutil."""
+    parent = psutil.Process(pid)
+    children = parent.children(recursive=True)
+    if include_parent:
+        children.append(parent)
+    access_denied_exception_occurred = False
+    for p in children:
+        try:
+            p.suspend()
+        except psutil.NoSuchProcess:
+            logging.info("A process with PID: {} was not found or no longer exists".format(p))
+        except psutil.AccessDenied:
+            access_denied_exception_occurred = True
+            log_critical_exception("Unable to suspend a process with PID: {}".format(p))
+    if access_denied_exception_occurred:
+        logging.info("Failed to suspend some processes. Exiting...")
+        # enter_key_prompt()
+        sys.exit(1)
+
+
+def resume_proc_tree(pid, include_parent=True):
+    """Resume execution of a process tree (including grandchildren) with psutil."""
+    parent = psutil.Process(pid)
+    children = parent.children(recursive=True)
+    if include_parent:
+        children.append(parent)
+    access_denied_exception_occurred = False
+    for p in children:
+        try:
+            p.resume()
+        except psutil.NoSuchProcess:
+            logging.info("A process with PID: {} was not found or no longer exists".format(p))
+        except psutil.AccessDenied:
+            access_denied_exception_occurred = True
+            log_critical_exception("Unable to resume a process with PID: {}".format(p))
+    if access_denied_exception_occurred:
+        logging.info("Failed to resume some processes. Exiting...")
+        # enter_key_prompt()
+        sys.exit(1)
+
+
+def exception_cleanup():
+    """Cleanup the script on an exception in preparation to exit."""
+    logging.shutdown()
+    if currentid is not None and seedminer_launcher_proc is not None:
+        # Attempting to kill the process tree is more important than trying to remotely requeue
+        kill_proc_tree(seedminer_launcher_proc.pid)
+        remote_kill_work_request("n")
+
+
+def delete_file(path, path_not_exist_ok=False, exit_on_os_err_traceback=True):
+    """Utilize os.remove() for deleting files in a manner that is very dynamic.
+
+    :param path: str: Name of the file you want to delete.
+    :param path_not_exist_ok: bool: If path_not_exist_ok is False (the default), a traceback for an OSError exception
+        is printed regardless if the file you want to delete does not exist.
+        Set to True if you don't want this behavior.
+    :param exit_on_os_err_traceback: bool: Defaults to True which prompts and then exits the script only
+        if a traceback for an OSError exception was printed (which the path_not_exist_ok parameter can control).
+        Set to False if you don't want this behavior.
+    :return: bool: True if operation was successful, False if not.
+    """
+    try:
+        os.remove(path)
+        return True
+    except OSError as e:
+        # ENOENT is "No such file or directory"
+        if not path_not_exist_ok or (path_not_exist_ok and e.errno != ENOENT):
+            logging.exception("An error occurred while deleting \"{}\"".format(path))
+            if exit_on_os_err_traceback:
+                exception_cleanup()
+                enter_key_prompt()
+                sys.exit(1)
+        return False
+
+
+def create_dir(name, mode=0o777, exist_ok=False, exit_on_os_err_traceback=True):
+    """Utilize os.makedirs() for creating directories in a manner that is very dynamic.
+
+    :param name: str: Name of the directory you want to create.
+    :param mode: octal: Mode of the directory you want to create; the default is 0o777.
+    :param exist_ok: bool: If exist_ok is False (the default), a traceback for an OSError exception
+        is printed regardless if the directory you want to create already exists.
+        Set to True if you don't want this behavior.
+    :param exit_on_os_err_traceback: bool: Defaults to True which prompts and then exits the script only
+        if a traceback for an OSError exception was printed (which the exist_ok parameter can control).
+        Set to False if you don't want this behavior.
+    :return: bool: True if operation was successful, False if not.
+    """
+    try:
+        os.makedirs(name, mode, exist_ok)
+        return True
+    except OSError:
+        logging.exception("An error occurred while creating \"{}\"".format(name))
+        if exit_on_os_err_traceback:
+            exception_cleanup()
+            enter_key_prompt()
+            sys.exit(1)
+        return False
+
+
+def move_file_or_dir(src, dst, src_not_exist_ok=False, exit_on_os_err_traceback=True):
+    """Utilize shutil.move() for moving files in a manner that is very dynamic.
+
+    :param src: str: Origin of the file or directory you want to move.
+    :param dst: str: Destination of the file or directory you want to move.
+    :param src_not_exist_ok: bool: If src_not_exist_ok is False (the default), a traceback for an OSError exception
+        is printed regardless if the src file or directory you want to move does not exist.
+        Set to True if you don't want this behavior.
+    :param exit_on_os_err_traceback: bool: Defaults to True which prompts and then exits the script only
+        if a traceback for an OSError exception was printed (which the src_not_exist_ok parameter can control).
+        Set to False if you don't want this behavior.
+    :return: bool: True if operation was successful, False if not.
+    """
+    try:
+        shutil.move(src, dst)
+        return True
+    except OSError as e:
+        if not src_not_exist_ok or (src_not_exist_ok and e.errno != ENOENT):
+            logging.exception("An error occurred while moving \"{}\" to \"{}\"".format(src, dst))
+            if exit_on_os_err_traceback:
+                exception_cleanup()
+                enter_key_prompt()
+                sys.exit(1)
+        return False
+
+
+def download_file(url, local_filename, exit_on_traceback=True):  # https://stackoverflow.com/a/16696317 thx
+    """Download a file using requests.get().
+
+    :param url: str: The URL you want to download a file from.
+    :param local_filename: str: Name of the local file to save to.
+    :param exit_on_traceback: bool: Defaults to True which prompts and then exits the script only
+        if a traceback for an OSError exception was printed.
+        Set to False if you don't want this behavior.
+    :return: bool: True if operation was successful, False if not.
+    """
+    try:
+        with requests.get(url, stream=True, timeout=5) as r:
+            r.raise_for_status()
+            try:
+                with open(local_filename, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=1024):
+                        f.write(chunk)
+                return True
+            except OSError:
+                logging.exception("An error occurred while writing to \"{}\"".format(local_filename))
+                if exit_on_traceback:
+                    exception_cleanup()
+                    enter_key_prompt()
+                    sys.exit(1)
+                return False
+    except requests.exceptions.RequestException:
+        logging.exception("An error occurred while downloading \"{}\"".format(local_filename))
+        if exit_on_traceback:
+            exception_cleanup()
+            enter_key_prompt()
+            sys.exit(1)
+        return False
+
+
+def relaunch_seedminer_autolauncher():
+    """Restart this script."""
+    logging.shutdown()
+    try:
+        subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
+        sys.exit(0)
+    except OSError:
+        print("\nAn error occurred while re-launching \"{}\"".format(SEEDMINER_AUTOLAUNCHER))
+        enter_key_prompt()
+        sys.exit(1)
+
+
+def update_msed_data_db():
+    """Update seedminer's msed_data db.
+
+    There's no "checking", only updating.
+    """
+    print("Updating seedminer's msed_data db...")
+    try:
+        subprocess.call([sys.executable, SEEDMINER_LAUNCHER, "update-db"])
+    except OSError:
+        logging.exception("An error occurred while launching \"{}\" in order to "
+                          "update seedminer's msed_data db".format(SEEDMINER_LAUNCHER))
+        enter_key_prompt()
+        sys.exit(1)
+
+
+def check_for_updates():
+    """Check for updates to this script and to the msed db."""
+    print("Checking for updates...")
+    try:
+        with s.get(UPDATE_BASE_URL + "/static/bfm_seedminer_autolauncher_version", stream=True, timeout=5) as r:
+            r.raise_for_status()
+            size = 0
+            max_size = 1024
+            for chunk in r.iter_content(chunk_size=512):
+                size += len(chunk)
+                if size > max_size:
+                    raise ResponseContentTooLargeError("The response content is greater than {} bytes".format(max_size))
+            if __version__ < r.text:
+                print("Updating {}...".format(SEEDMINER_AUTOLAUNCHER))
+                download_file(UPDATE_BASE_URL + "/static/bfm_seedminer_autolauncher.py",
+                              SEEDMINER_AUTOLAUNCHER)
+                relaunch_seedminer_autolauncher()
+            else:
+                print("No \"{}\" update available!".format(SEEDMINER_AUTOLAUNCHER))
+                update_msed_data_db()
+    except (requests.exceptions.RequestException, ResponseContentTooLargeError):
+        logging.exception("An error occurred while remotely reading \"bfm_seedminer_autolauncher_version\"")
+        exception_cleanup()
+        enter_key_prompt()
+        sys.exit(1)
 
 
 def signal_handler(sig, frame):
-    """A signal handler that handles the action of pressing Ctrl + C (SIGINT)."""
-    # Gotta love our globals :)
-    global active_job, currentid, on_ctrlc_kill_when_prompt, quit_after_job
-    signal.signal(signal.SIGINT, original_sigint)  # This restores the original SIGINT handler
-    if currentid != "" and active_job is True:
+    """Handle SIGINT.
+
+    sig and frame are to be passed by the calling function, but are not used.
+    """
+    signal(SIGINT, SIG_IGN)  # This makes Ctrl-C not send SIGINT
+    global active_job, currentid, exit_after_job, seedminer_launcher_proc
+    del sig, frame  # We don't need these parameters...
+    if currentid is not None and active_job is True:
         active_job = False
-        psutil_process = get_children_processes(process.pid)
-        for proc in psutil_process:
-            proc.suspend()  # Suspend all process threads if on Windows, send SIGSTOP if on POSIX
-        sent_requeue_url = False
+        suspend_proc_tree(seedminer_launcher_proc.pid)  # This stops stdout from seedminer_launcher3.py, bfCL, etc.
         while True:
             try:
-                quit_input = input("Requeue job and quit, or continue job? [r/c]: ")
-                if quit_input.lower().startswith('r'):
-                    print("Requeuing job...")
-                    s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
-                    sent_requeue_url = True
-                    kill_process_tree(process.pid)
-                    print("Note that if you would like to kill a job instead,\n"
-                          "please let the script run until a job is auto-killed!")
-                    enter_key_quit_message()
-                    sys.exit(0)
-                elif quit_input.lower().startswith('c'):
-                    print("Continuing job...")
-                    for proc in psutil_process:
-                        proc.resume()  # Continue all process threads if on Windows, send SIGCONT if on POSIX
-                    signal.signal(signal.SIGINT, signal_handler)
-                    break
-                else:
-                    print("Please enter in a valid choice!")
-                    continue
-            except KeyboardInterrupt:
-                print("Alright, quitting...")
-                if not sent_requeue_url:
-                    s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
-                try:
-                    kill_process_tree(process.pid)
-                except psutil.Error:
-                    pass
-                time.sleep(1)
+                print("Job options menu:\n"
+                      "1. Resume job\n"
+                      "2. Update seedminer's msed_data db\n"
+                      "3. Resume job and exit after it has finished\n"
+                      "4. Requeue job and exit")
+                options_menu_input = input("Enter the number of a corresponding menu option: ")
+            except EOFError:
+                # Pressing Ctrl-C while SIGINT is ignored causes an EOFError on input()
+                print("\nPlease enter in a valid choice!")
+                continue
+            if options_menu_input.startswith('1'):
+                print("Continuing job...")
+                resume_proc_tree(seedminer_launcher_proc.pid)
+                break
+            elif options_menu_input.startswith('2'):
+                print("Updating your msed_data db...")
+                update_msed_data_db()
+                continue
+            elif options_menu_input.startswith('3'):
+                resume_proc_tree(seedminer_launcher_proc.pid)
+
+            elif options_menu_input.startswith('4'):
+                print("Requeuing job...")
+                remote_kill_work_request("n")
+                print("Killing {}'s process tree...".format(SEEDMINER_LAUNCHER))
+                kill_proc_tree(seedminer_launcher_proc.pid)
+                enter_key_prompt()
                 sys.exit(0)
-    elif on_ctrlc_kill_when_prompt is True:
-        on_ctrlc_kill_when_prompt = False
-        while True:
-            try:
-                quit_input = input("Would you like to quit after the next job finishes (instead of now)? [y/n]: ")
-                if quit_input.lower().startswith("y"):
-                    quit_after_job = True
-                    signal.signal(signal.SIGINT, signal_handler)
-                    break
-                elif quit_input.lower().startswith("n"):
-                    print("Quitting...")
-                    time.sleep(1)
-                    sys.exit(0)
-                else:
-                    print("Please enter in a valid choice!")
-                    continue
-            except KeyboardInterrupt:
-                print("Alright, quitting...")
-                time.sleep(1)
-                sys.exit(0)
+            else:
+                print("Please enter in a valid choice!")
+                continue
     else:
         sys.exit(0)
 
 
 def python_check():
-    """A simple check to see if the Python version being used is supported.
+    """Check that the Python version being used is supported.
 
     If the Python version is supported, then a check will make sure that "sys.executable" points
     to a valid Python interpreter path.
     """
-    if sys.version_info < (3, 4, 1):
-        print("Python %d.%d.%d is not supported!\n"
-              "Please use Python 3.4.1 or later!" % sys.version_info[0:3])
-        # Really, really bad workaround for pyflakes
-        try:
-            input = raw_input
-        except NameError:
-            pass
-        input("Press the Enter key to quit...")
-        sys.exit(1)
-    elif sys.version_info < (3, 4, 1):
-        # Positional argument specifiers are needed in Python 3.0, apparently
-        print("Python {0}.{0}.{0} is not supported!\n"
-              "Please use Python 3.4.1 or later!".format(*sys.version_info))
-        enter_key_quit_message()
+    supported_python_version = "3.4.1"
+    if sys.version_info[0:3] < (3, 4, 1):
+        # Positional argument specifiers are needed in Python 2.6 and Python 3.0
+        print("Python {0}.{1}.{2} is not supported! Please use Python {3} or later!".format(sys.version_info[0],
+                                                                                            sys.version_info[1],
+                                                                                            sys.version_info[2],
+                                                                                            supported_python_version))
+        input("Press the Enter key to exit...")
+        enter_key_prompt()
         sys.exit(1)
     elif sys.executable is None or sys.executable == '':
-        print("Error: Unable to determine the path to the Python interpreter!")
-        print("Try reinstalling Python 3 and see if you still receive this error message.")
-        enter_key_quit_message()
+        # Yes, it's possible that Python is unable to retrieve the path to its executable
+        print("Unable to determine the path to the Python interpreter automatically!")
+        print("Please report this at:\n{}\n"
+              "along with your OS type and Python version.".format(ISSUE_TRACKER_URL))
+        enter_key_prompt()
         sys.exit(1)
 
 
 def arch_and_os_check():
-    """An experimental check that determines if your computer is 64-bit and if the OS is supported."""
+    """Check that the computer being used is 64-bit its OS is supported."""
     computer_architecture = platform.machine()
     supported_architecture = computer_architecture.endswith('64')
-    # Yes, it's possible that it can't determine your processor's architecture
+    # Yes, it's possible that it cannot determine your processor's architecture
     if not supported_architecture and computer_architecture != '':
         print("You are using an unsupported computer architecture: {}-bit\n"
               "This script only works on 64-bit (Windows, macOS, and Linux) computers.".format(platform.machine()[-2:]))
         print("If you believe to have received this message in mistake,\n"
               "feel free to make a GitHub issue here:\n"
-              "https://github.com/Mike15678/bfm_seedminer_autolauncher/issues")
-        enter_key_quit_message()
+              "{}".format(ISSUE_TRACKER_URL))
+        enter_key_prompt()
         sys.exit(1)
-    if not SUPPORTED_OS or MINGW:
-        print("You are using an unsupported Operating System\n"
-              "or environment: {}\n"
+    if not SUPPORTED_OS:
+        print("You are using an unsupported Operating System or environment:\n{}\n"
               "This script only works on (64-bit) Windows, macOS, "
-              "and Linux computers.".format(CURRENT_OS_OR_ENVIRONMENT))
-        enter_key_quit_message()
+              "and Linux computers.".format(sys.platform))
+        enter_key_prompt()
         sys.exit(1)
 
 
 def missing_module_check():
     """A check that determines if the "requests" and "psutil" modules are installed on your computer
-    and provides instructions on how to install them if not.
-    """
+    and provides instructions on how to install them if not."""
     modules_to_install = None
-    if requests is None and psutil is None:
+    if not requests_found and not psutil_found:
         if pip_install("requests psutil") == 0:
-            print('Installed the "requests" and "psutil" modules automatically.\n'
-                  'Please rerun this script.')
-            logging.shutdown()  # This is an important function I've been not using this whole time
-            try:
-                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
-                    raise
-                else:
-                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
-                    raise
-            sys.exit(0)
+            print('Installed the "requests" and "psutil" modules automatically')
+            print("Relaunching {}...".format(SEEDMINER_AUTOLAUNCHER))
+            sleep(1)
+            relaunch_seedminer_autolauncher()
         else:
             print(
                 'The "requests" and "psutil" Python modules are not installed on this computer\n'
@@ -251,38 +538,20 @@ def missing_module_check():
             modules_to_install = "requests psutil"
     elif requests is None:
         if pip_install("requests") == 0:
-            print('Installed the "requests" module automatically.\n'
-                  'Please rerun this script.')
-            logging.shutdown()  # This is an important function I've been not using this whole time
-            try:
-                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
-                    raise
-                else:
-                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
-                    raise
-            sys.exit(0)
+            print('Installed the "requests" module automatically')
+            print("Relaunching {}...".format(SEEDMINER_AUTOLAUNCHER))
+            sleep(1)
+            relaunch_seedminer_autolauncher()
         else:
             print('The "requests" module is not installed on this computer and could not be automatically installed!\n'
                   'Please install it via pip and then feel free to rerun this script')
             modules_to_install = "requests"
     elif psutil is None:
         if pip_install("psutil") == 0:
-            print('Installed the "psutil" module automatically.\n'
-                  'Please rerun this script.')
-            logging.shutdown()  # This is an important function I've been not using this whole time
-            try:
-                subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
-                    raise
-                else:
-                    print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
-                    raise
-            sys.exit(0)
+            print('Installed the "psutil" module automatically')
+            print("Relaunching {}...".format(SEEDMINER_AUTOLAUNCHER))
+            sleep(1)
+            relaunch_seedminer_autolauncher()
         else:
             print('The "psutil" module is not installed on this computer and could not be automatically installed!\n'
                   'Please install it via pip and then feel free to rerun this script')
@@ -294,7 +563,7 @@ def missing_module_check():
         else:
             print("For Linux/macOS, this can generally be done by\n"
                   'entering in "python3 -m pip install --user {}" (without the quotes)'.format(modules_to_install))
-        enter_key_quit_message()
+        enter_key_prompt()
         sys.exit(1)
 
 
@@ -311,21 +580,6 @@ def pip_install(modules_to_install):
     return subprocess.call([sys.executable, "-m", "pip", "install", "--user", modules_to_install])
 
 
-# https://stackoverflow.com/a/16696317 thx
-def download_file(url, local_filename):
-    """Downloads files and returns the name of the file
-    that is saved locally.
-    """
-    # NOTE the stream=True parameter
-    r1 = requests.get(url, stream=True)
-    with open(local_filename, 'wb') as f1:
-        for chunk in r1.iter_content(chunk_size=1024):
-            if chunk:  # filter out keep-alive new chunks
-                f1.write(chunk)
-                # f1.flush() commented by recommendation from J.F.Sebastian
-    return local_filename
-
-
 def file_check():
     """A check that determines if there are any missing files on your computer."""
     missing_files = None
@@ -337,11 +591,11 @@ def file_check():
         check_failures += 1
         # TODO: Implement this logic in the missing_modules_check() function
         if check_failures > 0:
-            missing_files = ' and ' + BFCL
+            missing_files += ' and ' + BFCL
         else:
             missing_files = BFCL
     if check_failures > 0:
-        print('Error: Unable to find "{}" in the current directory.'.format(missing_files))
+        print('Unable to find "{}" in the current directory.'.format(missing_files))
         print('Try disabling your antivirus (if you have one) and then\n'
               'redownload Seedminer:\n'
               'https://github.com/Mike15678/seedminer/releases/tag/v2.1.5\n'
@@ -349,7 +603,7 @@ def file_check():
               'and then copy this script ("{}")\n'
               'inside of the new "seedminer" folder\n'
               "After that's done, feel free to rerun this script".format(SEEDMINER_AUTOLAUNCHER))
-        enter_key_quit_message()
+        enter_key_prompt()
         sys.exit(1)
 
 
@@ -375,24 +629,9 @@ def move_files_if_needed():
     """Moves files in the current directory into a new directory if needed.
 
     New directories are made if they don't already exist."""
-    try:
-        if os.path.isfile("benchmark"):
-            os.renames("benchmark", BENCHM)
-    except OSError:
-        print('\nError while moving "benchmark" file!')
-        raise
-    try:
-        if os.path.isfile("minername"):  # Old "miner name" file
-            os.renames("minername", MN)
-    except OSError:
-        print('\nError while moving and renaming "minername" file')
-        raise
-    try:
-        if os.path.isfile("total_mined"):
-            os.renames("total_mined", TM)
-    except OSError:
-        print('\nError while moving "total_mined" file')
-        raise
+    move_file_or_dir("benchmark", BM, src_not_exist_ok=True)
+    move_file_or_dir("minername", MN, src_not_exist_ok=True)
+    move_file_or_dir("total_mined", TM, src_not_exist_ok=True)
 
 
 def delete_log_files_prompt():
@@ -400,126 +639,62 @@ def delete_log_files_prompt():
 
     This prompt only appears if there are tens of log files.
     """
+    # TODO: Fix this
     if log_file_number_increment % 10 == 0:
         print('There are currently {} log files inside of your "{}" directory'.format(
             log_file_number_increment, LOG_DIR))
         while True:
             log_file_input = input("Would you like to delete all except the most recent log file? [y/n]: ")
-            if log_file_input.startswith('y'):
-                for log_file in glob.glob(LOG_PREFIX + '-*.log'):
-                    try:
-                        os.remove(log_file)
-                    except OSError as e:
-                        if e.errno != errno.ENOENT:
-                            print("Unable to delete: {}".format(log_file))
+            if log_file_input.lower().startswith('y'):
+                for log_file in glob(LOG_PREFIX + '-*.log'):
+                    if delete_file(log_file, delete_ok=True, do_exit=False) is False:
+                        while True:
+                            exit_input = input("Would you like to exit? [y/n]: ")
+                            if exit_input.lower().startswith('y'):
+                                print("Exiting...")
+                                sleep(1)
+                                sys.exit(1)
+                            elif exit_input.lower().startswith('n'):
+                                break
+                            else:
+                                print("Please input a valid choice!")
+                                continue
                 break
-            elif log_file_input.startswith('n'):
+            elif log_file_input.lower().startswith('n'):
                 break
             else:
                 print("Please input a valid choice!")
                 continue
 
 
-def check_for_updates():
-    """Checks for updates to this script and for the msed db."""
-    print("Checking for updates...")
-    r0 = s.get(UPDATE_URL + "/static/autolauncher_version")
-    if r0.text != CURRENT_VERSION:
-        print("Updating seedminer_autolauncher script...")
-        download_file(UPDATE_URL + "/static/" + SEEDMINER_AUTOLAUNCHER,
-                      SEEDMINER_AUTOLAUNCHER)
-        logging.shutdown()  # This is an important function I've been not using this whole time
-        try:
-            subprocess.call([sys.executable, SEEDMINER_AUTOLAUNCHER])
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                print('Unable to find "{}" in the current directory!'.format(SEEDMINER_AUTOLAUNCHER))
-                raise
-            else:
-                print('Error while trying to re-launch "{}"'.format(SEEDMINER_AUTOLAUNCHER))
-                raise
-        sys.exit(0)
-    else:
-        print("No script update available!")
-        print("Updating seedminer db...")
-        subprocess.call([sys.executable, "seedminer_launcher3.py", "update-db"])
-
-
-# TODO: Maybe rename the "except_all" parameter to "exist_ok"
-def delete_file(target_file, except_all=True, do_quit=True):
-    """A simple function that utilizes os.remove() for deleting files, but accepts multiple parameters.
-
-    :param target_file: File you want to delete.
-    :param except_all: Defaults to True which shows an exception for all errno codes. Set to False if
-        you don't want to show an exception for ENOENT errno codes (No such file or directory), but would
-        like to show an exception for everything else.
-    :param do_quit: Defaults to True which prompts and then quits the script. Set to False if you do not want
-        this behavior and would simply like to ignore the exception.
-    """
-    try:
-        os.remove(target_file)
-    except OSError as e:
-        if except_all:
-            print('An error occurred while deleting "{}"'.format(target_file))
-        else:
-            if e.errno != errno.ENOENT:
-                print('An error occurred while deleting "{}"'.format(target_file))
-        traceback.print_exc()
-        if do_quit:
-            enter_key_quit_message()
-            sys.exit(1)
-
-
-# psutil stuff
-def get_children_processes(parent_process_pid):
-    """Determines the children started by a parent process
-    and then returns them.
-    """
-    parent = psutil.Process(parent_process_pid)
-    children = parent.children(recursive=True)
-    return children
-
-
-# Even more psutil stuff
-def kill_process_tree(pid, including_parent=True):
-    """Kills a parent process and its children using psutil."""
-    parent = psutil.Process(pid)
-    children = parent.children(recursive=True)
-    psutil.wait_procs(children, timeout=5)
-    if including_parent:
-        parent.kill()
-        parent.wait(5)
-
-
-if __name__ == "__main__":
-    # Not constants; just setting these here
-    currentid = ""
-    process = None
-    active_job = False
-    on_ctrlc_kill_when_prompt = False
-    quit_after_job = False
-
-    # This can be done on both Python 2 & 3 so let's do this before the Python version check
-    original_sigint = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, signal_handler)
+def main():
+    """The main functionality of this script."""
+    signal(SIGINT, signal_handler)  # Register custom signal handler for SIGINT
+    global currentid, seedminer_launcher_proc, active_job, exit_after_job
 
     python_check()
     arch_and_os_check()
     missing_module_check()
     file_check()
-
-    make_bfm_dir_if_needed()
+    create_dir(LOG_DIR, exist_ok=True)  # This creates MISC_DIR as well, if non-existent
     move_files_if_needed()
 
     log_file_number_increment = 0
-    while os.path.exists(LOG_PREFIX + "-{}.log".format(log_file_number_increment)):
+    while os.path.isfile(LOG_PREFIX + "-{}.log".format(log_file_number_increment)):
         log_file_number_increment += 1
 
     appended_log_file = LOG_PREFIX + "-{}.log".format(log_file_number_increment)
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG,
+
+    # Setup logging to file
+    logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG,
                         filename=appended_log_file, filemode='w')
 
-    s = requests.Session()
+    # Setup logging to console as well
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
+    formatter = logging.Formatter("\n%(levelname)s: %(message)s")
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
 
     check_for_updates()
 
@@ -539,53 +714,43 @@ if __name__ == "__main__":
                       'and copy this script ("{}")\n'
                       'inside of the new "seedminer" folder\n'
                       "After that's done, feel free to rerun this script".format(SEEDMINER_AUTOLAUNCHER))
-                enter_key_quit_message()
+                enter_key_prompt()
                 sys.exit(0)
 
-    try:
-        os.remove("movable.sed")
-    except OSError as e_mov:
-        if e_mov.errno != errno.ENOENT:
-            print('Unable to delete "movable.sed" from the current directory!')
-            raise
+    delete_file("movable.sed", path_not_exist_ok=True, exit_on_=False)
 
     if os.path.isfile(TM):
-        with open(TM, "rb") as file:
+        with open(TM, 'rb') as file:
             total_mined = pickle.load(file)
     else:
         total_mined = 0
     print("Total seeds mined previously: {}".format(total_mined))
 
     if os.path.isfile(MN):
-        with open(MN, "rb") as file:
+        with open(MN, 'rb') as file:
             miner_username = pickle.load(file)
-        if not re.match("^[a-zA-Z0-9_\-|]*$", miner_username):
+        if not re.match("^[a-zA-Z0-9_\\-|]*$", miner_username):
             print('Invalid character(s) detected in your {} file!'.format(miner_username))
-            try:
-                os.remove(MN)
-            except OSError as e_mun:
-                if e_mun.errno != errno.ENOENT:
-                    print('Unable to delete "{}" file!')
-                    raise
+            delete_file(MN, path_not_exist_ok=True)
             print("Re-run this script to choose a new username")
-            sys.exit(1)
+            sys.exit(0)
     else:
         print("No username set, which name would you like to have on the leaderboards?\n"
               "Allowed Characters are: a-Z 0-9 - |")
         while True:
             miner_username = input("Enter your desired name: ")
-            if not re.match("^[a-zA-Z0-9_\-|]*$", miner_username):
+            if not re.match("^[a-zA-Z0-9_\\-|]*$", miner_username):
                 print("Invalid character inputted!\nAllowed Characters are: a-Z 0-9 - |")
                 continue
             else:
                 break
-        with open(MN, "wb") as file:
-            pickle.dump(miner_username, file, protocol=3)
+        with open(MN, 'wb') as file:
+            pickle.dump(miner_username, file)
 
     print("Welcome {}, your mining effort is truly appreciated!".format(miner_username))
 
-    if os.path.isfile(BENCHM):
-        with open(BENCHM, "rb") as file:
+    if os.path.isfile(BM):
+        with open(BM, 'rb') as file:
             benchmark_success = pickle.load(file)
         if benchmark_success == 1:
             print("Detected past benchmark! You're good to go!")
@@ -593,54 +758,55 @@ if __name__ == "__main__":
             print("Detected past benchmark! Your graphics card was too slow to help BruteforceMovable!")
             print("If you want, you can rerun the benchmark by deleting the 'benchmark' file"
                   "and by rerunning the script")
-            enter_key_quit_message()
+            enter_key_prompt()
             sys.exit(0)
         else:
             print("Either something weird happened or you tried to mess with the benchmark result")
             print("Feel free to delete the 'benchmark' file\n"
                   "in your {} directory and then rerun\n"
                   "this script to start a new benchmark".format(MISC_DIR))
-            enter_key_quit_message()
+            enter_key_prompt()
             sys.exit(1)
     else:
         print("\nBenchmarking...")
-        time_target = time.time() + 215
+        time_target = time() + 215
         download_file(BASE_URL + "/static/impossible_part1.sed",
                       "movable_part1.sed")
         process = subprocess.call(
             [sys.executable, "seedminer_launcher3.py", "gpu", "0", "5"])
         if process == 101:
-            time_finish = time.time()
+            time_finish = time()
         else:
             print("It seems that the graphics card brute-forcer (bfCL) wasn't able to run correctly")
             print("Please try figuring this out before running this script again")
-            enter_key_quit_message()
+            enter_key_prompt()
             sys.exit(1)
         if time_finish > time_target:
             print("\nYour graphics card is too slow to help BruteforceMovable!")
-            with open(BENCHM, "wb") as file:
-                pickle.dump(0, file, protocol=3)
+            with open(BM, 'wb') as file:
+                pickle.dump(0, file)
             print("If you ever get a new graphics card, feel free to delete the 'benchmark' file"
                   " and then rerun this script to start a new benchmark")
-            enter_key_quit_message()
+            enter_key_prompt()
             sys.exit(0)
         else:
             print("\nYour graphics card is strong enough to help BruteforceMovable!\n")
-            with open(BENCHM, "wb") as file:
-                pickle.dump(1, file, protocol=3)
+            with open(BM, 'wb') as file:
+                pickle.dump(1, file)
 
     while True:
         try:
             file_check()
             try:
                 r = s.get(BASE_URL + "/getWork")
-            except:
+                r.raise_for_status()
+            except requests.exceptions.RequestException:
                 print("Error. Waiting 30 seconds...")
-                time.sleep(30)
+                sleep(30)
                 continue
             if r.text == "nothing":
                 print("No work. Waiting 30 seconds...")
-                time.sleep(30)
+                sleep(30)
             else:
                 currentid = r.text
                 skipUploadBecauseJobBroke = False
@@ -652,22 +818,19 @@ if __name__ == "__main__":
                     download_file(BASE_URL + '/getPart1?task=' +
                                   currentid, 'movable_part1.sed')
                     print("Bruteforcing " + str(datetime.datetime.now()))
+                    kwargs = {}
                     if WINDOWS:
-                        process = psutil.Popen(
-                            [sys.executable, "seedminer_launcher3.py", "gpu", "0", "80"], creationflags=0x00000200)
+                        kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
                     else:
-                        signal.signal(signal.SIGINT, signal.SIG_IGN)
-                        # TODO: Fix this
-                        process = psutil.Popen(
-                            [sys.executable, "seedminer_launcher3.py", "gpu", "0", "80"], preexec_fn=os.setpgrp)
-                        signal.signal(signal.SIGINT, signal_handler)
+                        kwargs['start_new_session'] = True
+                    process = psutil.Popen([sys.executable, "seedminer_launcher3.py", "gpu", "0", "80"], **kwargs)
                     timer = 0
                     while process.poll() is None:
                         # We need to poll for kill more often then we check server
                         # Otherwise, we would waste up to 30 secs after finish
                         active_job = True
                         timer += 1
-                        time.sleep(1)
+                        sleep(1)
                         if timer % 30 == 0:
                             r3 = s.get(BASE_URL + '/check?task=' + currentid)
                             if r3.text != "ok":
@@ -675,10 +838,9 @@ if __name__ == "__main__":
                                 skipUploadBecauseJobBroke = True
                                 active_job = False
                                 print("\nJob cancelled or expired, killing...")
-                                kill_process_tree(process.pid)
-                                print("press ctrl-c if you would like to quit")
-                                on_ctrlc_kill_when_prompt = True
-                                time.sleep(5)
+                                kill_pro_tree(process.pid)
+                                print("Press Ctrl-C if you would like to exit")
+                                sleep(5)
                                 break
                     if process.returncode == 101 and skipUploadBecauseJobBroke is False:
                         skipUploadBecauseJobBroke = True
@@ -686,81 +848,73 @@ if __name__ == "__main__":
                         s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=y")
                         currentid = ""
                         print("\nJob reached the specified max offset and was killed...")
-                        print("press ctrl-c if you would like to quit")
+                        print("Press Ctrl-C if you would like to exit")
                         on_ctrlc_kill_when_prompt = True
-                        time.sleep(5)
+                        sleep(5)
                     elif os.path.isfile("movable.sed") and skipUploadBecauseJobBroke is False:
                         active_job = False
-                        list_of_files = glob.glob('msed_data_*.bin')
-                        latest_file = max(list_of_files, key=os.path.getctime)
+                        list_of_msed_data = glob('msed_data_*.bin')
+                        latest_file = max(list_of_msed_data, key=os.path.getctime)
+                        delete_file(latest_file, path_not_exist_ok=True)
                         failed_upload_attempts = 0
                         # Try three times and then you're out
                         while failed_upload_attempts < 3:
                             print("\nUploading...")
                             ur = s.post(BASE_URL + '/upload?task=' + currentid + "&minername="
                                         + urllib.parse.quote_plus(miner_username),
-                                        files={'movable': open('movable.sed', 'rb'), 'msed': open(latest_file, 'rb')})
+                                        files={'movable': open('movable.sed', 'rb')})
                             print(ur.text)
                             if ur.text == "success":
                                 currentid = ""
                                 print("Upload succeeded!")
-                                try:
-                                    os.remove("movable.sed")
-                                except OSError as e_mov2:
-                                    if e_mov2 != errno.ENOENT:
-                                        print('Unable to delete "movable.sed" from current directory!')
-                                        raise
-                                try:
-                                    os.remove(latest_file)
-                                except OSError as e_lf:
-                                    if e_lf != errno.ENOENT:
-                                        print('Unable to delete "msed_data_*.bin" from current directory!')
-                                        raise
                                 total_mined += 1
                                 print("Total seeds mined: {}".format(total_mined))
-                                with open(TM, "wb") as file:
-                                    pickle.dump(total_mined, file, protocol=3)
-                                if quit_after_job is True:
-                                    print("\nQuiting by earlier request...")
-                                    time.sleep(1)
+                                with open(TM, 'wb') as file:
+                                    pickle.dump(total_mined, file)
+                                delete_file("movable.sed", path_not_exist_ok=True)
+                                if exit_after_job is True:
+                                    print("\nExiting by earlier request...")
+                                    sleep(1)
                                     sys.exit(0)
-                                print("press ctrl-c if you would like to quit")
+                                print("Press Ctrl-C if you would like to exit")
                                 on_ctrlc_kill_when_prompt = True
-                                time.sleep(5)
+                                sleep(5)
                                 break
                             else:
                                 failed_upload_attempts += 1
                                 if failed_upload_attempts == 3:
                                     s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
                                     currentid = ""
-                                    print("The script failed to upload files three times; Quitting...")
+                                    print("The script failed to upload files three times...")
+                                    enter_key_prompt()
                                     sys.exit(1)
                                 print("Upload failed! The script will try to\n"
                                       "upload completed files {} more time(s)"
-                                      " before quitting".format(3 - failed_upload_attempts))
+                                      " before exiting".format(3 - failed_upload_attempts))
                                 print("Waiting 10 seconds...")
-                                print("press ctrl-c if you would like to quit")
-                                time.sleep(10)
+                                print("Press Ctrl-C if you would like to exit")
+                                sleep(10)
                     elif os.path.isfile("movable.sed") is False and skipUploadBecauseJobBroke is False:
                         s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
                         currentid = ""
-                        if os.path.isfile(BENCHM):
-                            os.remove(BENCHM)
+                        try:
+                            os.remove(BM)
+                        except OSError:
+                            pass
                         print("It seems that the graphics card brute-forcer (bfCL) wasn't able to run correctly")
                         print("Please try figuring this out before running this script again")
-                        enter_key_quit_message()
+                        enter_key_prompt()
                         sys.exit(1)
         except Exception:
             active_job = False
-            if currentid != "" and process is not None:
-                s.get(BASE_URL + "/killWork?task=" + currentid + "&kill=n")
-                kill_process_tree(process.pid)  # TODO: Fix this
-                currentid = ""
-            print("\nError")
-            traceback.print_exc()
+
+            print("\nAn unexpected error occurred!")
+            print_traceback()
             print("Writing exception to '{}'...".format(appended_log_file))
-            logging.exception(datetime.datetime.now())
-            print("done")
-            print("Waiting 10 seconds...")
-            print("press ctrl-c if you would like to quit")
-            time.sleep(10)
+            logging.exception("An unexpected error occurred!")
+            enter_key_prompt()
+            sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

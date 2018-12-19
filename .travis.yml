@@ -1,8 +1,11 @@
 language: python
-python: 3.6
+python: "3.7"
 os: linux
-sudo: false
+dist: xenial
+env: BFM_SEEDMINER_AUTOLAUNCHER="static/bfm_seedminer_autolauncher.py"
+
 install:
-  - pip install pyflakes
+  - pip install pyflakes pytest
 script:
-  - pyflakes static/bfm_seedminer_autolauncher.py
+  - pyflakes $BFM_SEEDMINER_AUTOLAUNCHER
+  - pytest
