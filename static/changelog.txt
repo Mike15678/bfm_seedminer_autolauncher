@@ -1,13 +1,13 @@
 What's new in bfm_seedminer_autolauncher v3.0.0:
   * This script is now licensed under the MIT license! :)
   * The whole entire script was refactored to have less bugs and checks are now practically everywhere
-to make sure things work as intended.
+    to make sure things work as intended.
   * psutil is now a dependency. The script will ask you if you want it to be auto-installed.
-  * All extra files now go into a "bfm_misc/" directory and will be
-automatically moved if they already exist.
+  * All extra files now go into a "bfm_seedminer_autolauncher_misc/" directory and will be
+    automatically moved if they currently exist.
   * Logging was improved and now each event recorded inside of a log file
-shows time, log level, and a message.
+    shows time, log level, and a message.
   * You are now able to quit the script after a job has finished. To do so, press
-Ctrl-C during a job or whenever the script has has you wait before your next job is received.
-  * Further improvements to overall BruteforceMovable stability and other minor adjustments have been made
-to enhance the mining experience.
+    Ctrl-C during a job or whenever the script has has you wait before your next job is received.
+  * Further improvements to overall script stability and other minor adjustments have been made
+    to enhance the mining experience.

@@ -3,7 +3,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 figgyc, Valentijn "noirscape" V., deadphoenix8091, Michael "Mike15678" M.
+# Copyright (c) 2018-2019 deadphoenix8091, figgyc, Michael "Mike15678" M., and Valentijn "noirscape" V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,32 +25,21 @@
 
 from static import bfm_seedminer_autolauncher
 
+# No real need for exception handling when reading these files since this script should only be run via pytest
+with open("static/bfm_seedminer_autolauncher_version", "r") as f:
+    remote_version_string = f.read()
 
-def remote_version_string():
-    """Read and return the contents of the "bfm_seedminer_autolauncher_version" file.
-
-    :return: str: Version string.
-    """
-    with open("static/bfm_seedminer_autolauncher_version", "r") as f:
-        return f.read()
-
-
-def first_line_of_changelog():
-    """Read and return the first line of "changelog.txt".
-
-    :return: str: First line of the changelog.
-    """
-    with open("static/changelog.txt", "r") as f:
-        return f.readline()
+with open("static/changelog.txt", "r") as f:
+    first_line_of_changelog = f.readline()
 
 
 def test_client_and_remote_version_strings():
     """Test to make sure that both "bfm_seedminer_autolauncher.py" and "bfm_seedminer_autolauncher_version" have
     the same version strings."""
-    assert bfm_seedminer_autolauncher.__version__ == remote_version_string()
+    assert bfm_seedminer_autolauncher.__version__ == remote_version_string
 
 
 def test_changelog_contains_correct_version_string():
     """Test to make sure that the first line of "changelog.txt" contains the version string
     from the "bfm_seedminer_autolauncher_version" file."""
-    assert remote_version_string() in first_line_of_changelog()
+    assert remote_version_string in first_line_of_changelog
